@@ -1,4 +1,4 @@
-from evdev import UInput, ecodes as e, util, InputDevice, list_devices
+from evdev import UInput, ecodes as e, util, InputDevice, list_devices, KeyEvent
 import threading
 from select import select
 
@@ -411,8 +411,10 @@ class KeyboardCapture(Capture):
                         if event.code in KEYCODE_TO_KEY:
                             key_name = KEYCODE_TO_KEY[event.code]
                             if key_name in self._suppressed_keys:
-                                pressed = event.value == 1
-                                (self.key_down if pressed else self.key_up)(key_name)
+                                if event.value == KeyEvent.key_up:
+                                    self.key_up(key_name)
+                                elif event.value == KeyEvent.key_down:
+                                    self.key_down(key_name)
                                 continue  # Go to the next iteration, skipping the below code:
-                    self._ui.write(e.EV_KEY, event.code, event.value)
-                    self._ui.syn()
+                    # Passthrough event
+                    self._ui.write_event(event)

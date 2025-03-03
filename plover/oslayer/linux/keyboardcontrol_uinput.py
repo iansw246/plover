@@ -258,9 +258,15 @@ LAYOUTS = {
 
 us_qwerty = {
     **LAYOUTS[DEFAULT_LAYOUT],
+    "`": e.KEY_GRAVE,
+    "-": e.KEY_MINUS,
+    "=": e.KEY_EQUAL,
+    "[": e.KEY_LEFTBRACE,
+    "]": e.KEY_RIGHTBRACE,
+    "\\": e.KEY_BACKSLASH,
     ";": e.KEY_SEMICOLON,
     "'": e.KEY_APOSTROPHE,
-    "[": e.KEY_LEFTBRACE,
+    "/": e.KEY_SLASH,
 }
 KEYCODE_TO_KEY = dict(zip(us_qwerty.values(), us_qwerty.keys()))
 
@@ -350,6 +356,14 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
 
 class KeyboardCapture(Capture):
+    left_ctrl_pressed: bool
+    right_ctrl_pressed: bool
+    left_shift_pressed: bool
+    right_shift_pressed: bool
+    left_alt_pressed: bool
+    right_alt_pressed: bool
+    keys_pressed_during_modifier: set[str]
+
     def __init__(self):
         super().__init__()
         # This is based on the example from the python-evdev documentation, using the first of the three alternative methods: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-select
@@ -360,6 +374,15 @@ class KeyboardCapture(Capture):
         self._ui = UInput(self._res)
         self._suppressed_keys = []
         # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
+
+        # Special modifier handling
+        self.left_ctrl_pressed = False
+        self.right_ctrl_pressed = False
+        self.left_shift_pressed = False
+        self.right_shift_pressed = False
+        self.left_alt_pressed = False
+        self.right_alt_pressed = False
+        self.keys_pressed_during_modifier = set()
 
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
@@ -397,6 +420,7 @@ class KeyboardCapture(Capture):
 
     def _run(self):
         [dev.grab() for dev in self._devices.values()]
+        from evdev import categorize
         while self._running:
             """
             The select() call blocks the loop until it gets an input, which meant that the keyboard
@@ -407,14 +431,42 @@ class KeyboardCapture(Capture):
             r, _, _ = select(self._devices, [], [], 1)
             for fd in r:
                 for event in self._devices[fd].read():
+                    print("event", categorize(event))
                     if event.type == e.EV_KEY:
-                        if event.code in KEYCODE_TO_KEY:
-                            key_name = KEYCODE_TO_KEY[event.code]
-                            if key_name in self._suppressed_keys:
-                                if event.value == KeyEvent.key_up:
-                                    self.key_up(key_name)
-                                elif event.value == KeyEvent.key_down:
-                                    self.key_down(key_name)
-                                continue  # Go to the next iteration, skipping the below code:
+                        if event.code == e.KEY_LEFTCTRL:
+                            self.left_ctrl_pressed = event.value == KeyEvent.key_down
+                        elif event.code == e.KEY_RIGHTCTRL:
+                            self.right_ctrl_pressed = event.value == KeyEvent.key_down
+                        elif event.code == e.KEY_LEFTSHIFT:
+                            self.left_shift_pressed = event.value == KeyEvent.key_down
+                        elif event.code == e.KEY_RIGHTSHIFT:
+                            self.right_shift_pressed = event.value == KeyEvent.key_down
+                        elif event.code == e.KEY_LEFTALT:
+                            self.left_alt_pressed = event.value == KeyEvent.key_down
+                        elif event.code == e.KEY_RIGHTALT:
+                            self.right_alt_pressed = event.value == KeyEvent.key_down
+                        modifier_active = self.left_ctrl_pressed or self.right_ctrl_pressed or self.left_shift_pressed or self.right_shift_pressed or self.left_alt_pressed or self.right_alt_pressed
+                        if modifier_active:
+                            if event.value == KeyEvent.key_down:
+                                print("Modifier active key down")
+                                self.keys_pressed_during_modifier.add(event.code)
+                            elif event.value == KeyEvent.key_up:
+                                # .remove instead of .discard to raise error to test my assumption that key only released after being pressed
+                                print("Modifier active key up")
+                                self.keys_pressed_during_modifier.remove(event.code)
+                        else:
+                            print("Modifier not active")
+                            if event.value == KeyEvent.key_up and event.code in self.keys_pressed_during_modifier:
+                                print("Ignoring key release")
+                                self.keys_pressed_during_modifier.remove(event.code)
+                            elif event.code in KEYCODE_TO_KEY:
+                                key_name = KEYCODE_TO_KEY[event.code]
+                                if key_name in self._suppressed_keys:
+                                    if event.value == KeyEvent.key_up:
+                                        self.key_up(key_name)
+                                    elif event.value == KeyEvent.key_down:
+                                        self.key_down(key_name)
+                                    continue  # Go to the next iteration, skipping the below code:
                     # Passthrough event
+                    print("Passing through previous event")
                     self._ui.write_event(event)

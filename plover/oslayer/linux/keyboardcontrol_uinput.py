@@ -416,7 +416,7 @@ class KeyboardCapture(Capture):
     _futures: list[asyncio.Future]
     def __init__(self):
         super().__init__()
-        # This is based on the example from the python-evdev documentation, using the first of the three alternative methods: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-select
+        # This is based on the example from the python-evdev documentation, using the asyncio method: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-asyncio
         self._devices = self._get_devices()
         self._running = False
         self._loop = asyncio.new_event_loop()
@@ -443,8 +443,12 @@ class KeyboardCapture(Capture):
     
     def _grab_devices(self):
         for device in self._devices.values():
+            # Wait until no keys are pressed before grabbing to prevent keys getting stuck.
+            # If a device is grabbed when keys are being pressed, the key will
+            # appear to be always pressed down until the device is ungrabbed and the
+            # key is pressed again.
+            # See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
             if active_keys := device.active_keys():
-                print("Waiting")
                 log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
                 for event in device.read_loop():
                     if not device.active_keys():
@@ -485,13 +489,13 @@ class KeyboardCapture(Capture):
                 if event.type == e.EV_KEY:
                     modifier_active = any(key in MODIFIER_KEY_CODES for key in device.active_keys())
                     if not modifier_active and event.code in KEYCODE_TO_KEY:
-                            key_name = KEYCODE_TO_KEY[event.code]
-                            if key_name in self._suppressed_keys:
-                                if event.value == KeyEvent.key_up:
-                                    self.key_up(key_name)
-                                elif event.value == KeyEvent.key_down:
-                                    self.key_down(key_name)
-                                continue  # Go to the next iteration, skipping the below code:
+                        key_name = KEYCODE_TO_KEY[event.code]
+                        if key_name in self._suppressed_keys:
+                            if event.value == KeyEvent.key_up:
+                                self.key_up(key_name)
+                            elif event.value == KeyEvent.key_down:
+                                self.key_down(key_name)
+                            continue  # Go to the next iteration, skipping the below code:
                 # Passthrough event
                 print("Passing through previous event")
                 self._ui.write_event(event)

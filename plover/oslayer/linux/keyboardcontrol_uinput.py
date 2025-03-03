@@ -218,7 +218,11 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "kbdbrightnessdown": KeyCodeInfo(keycode=e.KEY_KBDILLUMDOWN, is_shifted=False),
 }
 
-MODIFIER_KEY_CODES = {e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT, e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL, e.KEY_LEFTALT, e.KEY_RIGHTALT}
+MODIFIER_KEY_CODES: set[int] = {
+    e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT,
+    e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL,
+    e.KEY_LEFTALT, e.KEY_RIGHTALT
+}
 
 DEFAULT_LAYOUT = "qwerty"
 LAYOUTS = {
@@ -464,10 +468,13 @@ class KeyboardCapture(Capture):
         self._running = True
 
     def cancel(self):
-        [dev.ungrab() for dev in self._devices.values()]
-
+        # TODO: Figure out why asyncio.exceptions.InvalidStateError: invalid state
+        # is raised when Plover exits
+        print("Cancel")
         for task in self._futures:
             task.cancel()
+
+        [dev.ungrab() for dev in self._devices.values()]
 
         self._running = False
 
@@ -487,14 +494,18 @@ class KeyboardCapture(Capture):
             for event in await device.async_read():
                 print("Event:", categorize(event))
                 if event.type == e.EV_KEY:
+                    # Debug quit key in case bug blocks user input
+                    if event.code == e.KEY_F5:
+                        print("Debug quit key pressed. Handling thread exiting...")
+                        exit(2)
                     modifier_active = any(key in MODIFIER_KEY_CODES for key in device.active_keys())
                     if not modifier_active and event.code in KEYCODE_TO_KEY:
                         key_name = KEYCODE_TO_KEY[event.code]
+                        if event.value == KeyEvent.key_up:
+                            self.key_up(key_name)
+                        elif event.value == KeyEvent.key_down:
+                            self.key_down(key_name)
                         if key_name in self._suppressed_keys:
-                            if event.value == KeyEvent.key_up:
-                                self.key_up(key_name)
-                            elif event.value == KeyEvent.key_down:
-                                self.key_down(key_name)
                             continue  # Go to the next iteration, skipping the below code:
                 # Passthrough event
                 print("Passing through previous event")

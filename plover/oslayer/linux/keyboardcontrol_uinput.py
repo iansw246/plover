@@ -1,6 +1,7 @@
 import threading
 from select import select
 from dataclasses import dataclass
+import asyncio
 
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, KeyEvent
 
@@ -412,15 +413,18 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
 
 class KeyboardCapture(Capture):
+    _futures: list[asyncio.Future]
     def __init__(self):
         super().__init__()
         # This is based on the example from the python-evdev documentation, using the first of the three alternative methods: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-select
         self._devices = self._get_devices()
         self._running = False
-        self._thread = None
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever).start()
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
         self._suppressed_keys = []
+        self._futures = []
         # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
 
     def _get_devices(self):
@@ -436,17 +440,33 @@ class KeyboardCapture(Capture):
         capabilities = device.capabilities()
         is_mouse = e.EV_REL in capabilities or e.EV_ABS in capabilities
         return not is_uinput and not is_mouse
+    
+    def _grab_devices(self):
+        for device in self._devices.values():
+            if active_keys := device.active_keys():
+                print("Waiting")
+                log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
+                for event in device.read_loop():
+                    if not device.active_keys():
+                        break
+                log.info("Active keys cleared. Continuing")
+            device.grab()
 
     def start(self):
+        self._grab_devices()
+
+        for device in self._devices.values():
+            self._futures.append(asyncio.run_coroutine_threadsafe(self.monitor_device(device), self._loop))
         self._running = True
-        self._thread = threading.Thread(target=self._run)
-        self._thread.start()
 
     def cancel(self):
-        self._running = False
         [dev.ungrab() for dev in self._devices.values()]
-        if self._thread is not None:
-            self._thread.join()
+
+        for task in self._futures:
+            task.cancel()
+
+        self._running = False
+
         self._ui.close()
 
     def suppress(self, suppressed_keys=()):
@@ -457,37 +477,21 @@ class KeyboardCapture(Capture):
         """
         self._suppressed_keys = suppressed_keys
 
-    def _run(self):
-        for device in self._devices.values():
-            if device.active_keys():
-                print("Has active keys. Waiting to go away:", device.active_keys())
-                for event in device.read_loop():
-                    if not device.active_keys():
-                        break
-            device.grab()
+    async def monitor_device(self, device):
         from evdev import categorize
-        while self._running:
-            """
-            The select() call blocks the loop until it gets an input, which meant that the keyboard
-            had to be pressed once after executing `cancel()`. Now, there is a 1 second delay instead
-            FIXME: maybe use one of the other options to avoid the timeout
-            https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-select
-            """
-            r, _, _ = select(self._devices, [], [], 1)
-            for fd in r:
-                for event in self._devices[fd].read():
-                    print("Event:", categorize(event))
-                    if event.type == e.EV_KEY:
-                        device = self._devices[fd]
-                        modifier_active = any(key in MODIFIER_KEY_CODES for key in device.active_keys())
-                        if not modifier_active and event.code in KEYCODE_TO_KEY:
-                                key_name = KEYCODE_TO_KEY[event.code]
-                                if key_name in self._suppressed_keys:
-                                    if event.value == KeyEvent.key_up:
-                                        self.key_up(key_name)
-                                    elif event.value == KeyEvent.key_down:
-                                        self.key_down(key_name)
-                                    continue  # Go to the next iteration, skipping the below code:
-                    # Passthrough event
-                    print("Passing through previous event")
-                    self._ui.write_event(event)
+        while True:
+            for event in await device.async_read():
+                print("Event:", categorize(event))
+                if event.type == e.EV_KEY:
+                    modifier_active = any(key in MODIFIER_KEY_CODES for key in device.active_keys())
+                    if not modifier_active and event.code in KEYCODE_TO_KEY:
+                            key_name = KEYCODE_TO_KEY[event.code]
+                            if key_name in self._suppressed_keys:
+                                if event.value == KeyEvent.key_up:
+                                    self.key_up(key_name)
+                                elif event.value == KeyEvent.key_down:
+                                    self.key_down(key_name)
+                                continue  # Go to the next iteration, skipping the below code:
+                # Passthrough event
+                print("Passing through previous event")
+                self._ui.write_event(event)

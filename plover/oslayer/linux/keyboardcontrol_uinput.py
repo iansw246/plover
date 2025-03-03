@@ -458,7 +458,13 @@ class KeyboardCapture(Capture):
         self._suppressed_keys = suppressed_keys
 
     def _run(self):
-        [dev.grab() for dev in self._devices.values()]
+        for device in self._devices.values():
+            if device.active_keys():
+                print("Has active keys. Waiting to go away:", device.active_keys())
+                for event in device.read_loop():
+                    if not device.active_keys():
+                        break
+            device.grab()
         from evdev import categorize
         while self._running:
             """

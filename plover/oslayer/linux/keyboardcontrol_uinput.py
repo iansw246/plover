@@ -427,7 +427,6 @@ class KeyboardCapture(Capture):
         self._running = False
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever)
-        self._thread.start()
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
         self._suppressed_keys = []
@@ -471,13 +470,16 @@ class KeyboardCapture(Capture):
         self._grab_devices()
         for device in self._devices:
             self._futures.append(asyncio.run_coroutine_threadsafe(self.monitor_device(device), self._loop))
+        self._thread.start()
         self._running = True
         print("Done starting")
 
     def cancel(self):
         print("Cancel")
+        self._loop.call_soon_threadsafe(self._loop.stop)
         for future in self._futures:
             future.cancel()
+        self._thread.join()
         # for future in self._futures:
         #     try:
         #         future.result()
@@ -494,6 +496,8 @@ class KeyboardCapture(Capture):
         self._running = False
 
         self._ui.close()
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever)
 
     def suppress(self, suppressed_keys=()):
         """

@@ -2,6 +2,7 @@ import os
 import threading
 from dataclasses import dataclass
 import selectors
+import string
 
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, KeyEvent
 
@@ -40,7 +41,7 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "2": KeyCodeInfo(keycode=e.KEY_2, is_shifted=False),
     "@": KeyCodeInfo(keycode=e.KEY_2, is_shifted=True),
     "3": KeyCodeInfo(keycode=e.KEY_3, is_shifted=False),
-    "3": KeyCodeInfo(keycode=e.KEY_3, is_shifted=True),
+    "#": KeyCodeInfo(keycode=e.KEY_3, is_shifted=True),
     "4": KeyCodeInfo(keycode=e.KEY_4, is_shifted=False),
     "$": KeyCodeInfo(keycode=e.KEY_4, is_shifted=True),
     "5": KeyCodeInfo(keycode=e.KEY_5, is_shifted=False),
@@ -217,6 +218,9 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "kbdbrightnessup": KeyCodeInfo(keycode=e.KEY_KBDILLUMUP, is_shifted=False),
     "kbdbrightnessdown": KeyCodeInfo(keycode=e.KEY_KBDILLUMDOWN, is_shifted=False),
 }
+
+# Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
+assert all(c in BASE_LAYOUT for c in string.printable[:-5])
 
 MODIFIER_KEY_CODES: set[int] = {
     e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT,
@@ -420,12 +424,13 @@ class KeyboardCapture(Capture):
     _thread: threading.Thread | None
     _selector: selectors.BaseSelector
     # Pipe to signal _monitor_devices thread to stop
+    # The thread will select() on this pipe to know when to stop
     _thread_read_pipe: int
     _thread_write_pipe: int
 
     def __init__(self):
         super().__init__()
-        # This is based on the example from the python-evdev documentation, using the asyncio method: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-asyncio
+        # This is based on the example from the python-evdev documentation: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-selectors
         self._devices = self._get_devices()
         self._running = False
         self._selector = selectors.DefaultSelector()
@@ -435,7 +440,6 @@ class KeyboardCapture(Capture):
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
         self._suppressed_keys = []
-        self._futures = []
         # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
 
     def _get_devices(self):
@@ -463,7 +467,7 @@ class KeyboardCapture(Capture):
             # actually grabbing the device.
             if active_keys := device.active_keys():
                 log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
-                for event in device.read_loop():
+                for _ in device.read_loop():
                     if not device.active_keys():
                         break
                 log.info("Active keys cleared. Continuing")
@@ -473,7 +477,7 @@ class KeyboardCapture(Capture):
         log.debug("Start")
         self._grab_devices()
         for device in self._devices:
-            self._selector.register(device, selectors.EVENT_READ, device)
+            self._selector.register(device, selectors.EVENT_READ)
         self._thread = threading.Thread(target=self._monitor_devices)
         self._thread.start()
         self._running = True
@@ -516,8 +520,8 @@ class KeyboardCapture(Capture):
                     # Clear the pipe
                     os.read(key.fd, 999)
                     return
-                assert isinstance(key.data, InputDevice)
-                device: InputDevice = key.data
+                assert isinstance(key.fileobj, InputDevice)
+                device: InputDevice = key.fileobj
                 for event in device.read():
                     log.debug("Event:%s", categorize(event))
                     if event.type == e.EV_KEY:

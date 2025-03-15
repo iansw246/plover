@@ -494,15 +494,7 @@ class KeyboardCapture(Capture):
             self._thread.join()
             self._thread = None
 
-        # for device in self._devices:
-        #     device.ungrab()
-
-        for device in self._devices:
-            self._selector.unregister(device)
-
         self._running = False
-
-        self._ui.close()
 
     def suppress(self, suppressed_keys=()):
         """
@@ -563,10 +555,9 @@ class KeyboardCapture(Capture):
                                             keys_pressed_with_modifier.discard(event.code)
                                             print("Key released with modifier. new keys_pressed_with_modifier", keys_pressed_with_modifier, file=keylog_file, flush=True)
                                         else:
-                                            key_name = KEYCODE_TO_KEY[event.code]
-                                            self.key_up(key_name)
-                                            # if key_name in self._suppressed_keys:
-                                            #     continue
+                                            if event.code in KEYCODE_TO_KEY:
+                                                key_name = KEYCODE_TO_KEY[event.code]
+                                                self.key_up(key_name)
                                 elif event.value == KeyEvent.key_up:
                                     if event.code in keys_pressed_with_modifier:
                                         keys_pressed_with_modifier.discard(event.code)
@@ -591,5 +582,7 @@ class KeyboardCapture(Capture):
                 for device in self._devices:
                     try:
                         device.ungrab()
+                        self._selector.unregister(device)
                     except:
                         log.error("Failed to ungrab device", exc_info=True)
+                self._ui.close()

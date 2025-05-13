@@ -422,6 +422,9 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 log.warning("Key " + key + " is not valid!")
         self._ui.syn()
 
+# Ignore devices with too few keys. These are likely switches or power button devices
+# In any case, they have too few keys to be useful as a keyboard
+MINIMUM_KEYS_FOR_KEYBOARD: int = 8
 
 class KeyboardCapture(Capture):
     _thread: threading.Thread | None
@@ -448,20 +451,28 @@ class KeyboardCapture(Capture):
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
         keyboard_devices = [dev for dev in input_devices if self._filter_devices(dev)]
+        print(keyboard_devices)
         return keyboard_devices
 
     def _filter_devices(self, device):
         """
         Filter out devices that should not be grabbed and suppressed, to avoid output feeding into itself.
         """
+        capabilities = device.capabilities()
         is_uinput = device.name == "py-evdev-uinput" or device.phys == "py-evdev-uinput"
+        # Ignore power button, lid switches, and similar
+        is_switch = (
+            e.EV_SW in capabilities
+            or len(capabilities[e.EV_KEY]) < MINIMUM_KEYS_FOR_KEYBOARD
+        )
+        is_keyboard = e.EV_KEY in capabilities and e.EV_SYN in capabilities
         # Check for some common keys to make sure it's really a keyboard
         keys = device.capabilities().get(e.EV_KEY, [])
         keyboard_keys_present = any(
             key in keys
             for key in [e.KEY_ESC, e.KEY_SPACE, e.KEY_ENTER, e.KEY_LEFTSHIFT]
         )
-        return not is_uinput and keyboard_keys_present
+        return not is_uinput and keyboard_keys_present and is_keyboard and not is_switch
 
     def start(self):
         self._grab_devices()

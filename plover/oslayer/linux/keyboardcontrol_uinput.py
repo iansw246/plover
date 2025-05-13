@@ -17,6 +17,7 @@ class KeyCodeInfo:
     is_shifted: bool
 # Tuple is (keycode, is_shifted)
 BASE_LAYOUT: dict[str, KeyCodeInfo] = {
+    # Modifiers
     "alt_l": KeyCodeInfo(keycode=e.KEY_LEFTALT, is_shifted=False),
     "alt_r": KeyCodeInfo(keycode=e.KEY_RIGHTALT, is_shifted=False),
     "alt": KeyCodeInfo(keycode=e.KEY_LEFTALT, is_shifted=False),
@@ -461,18 +462,35 @@ class KeyboardCapture(Capture):
         capabilities = device.capabilities()
         is_uinput = device.name == "py-evdev-uinput" or device.phys == "py-evdev-uinput"
         # Ignore power button, lid switches, and similar
-        is_switch = (
-            e.EV_SW in capabilities
-            or len(capabilities[e.EV_KEY]) < MINIMUM_KEYS_FOR_KEYBOARD
-        )
-        is_keyboard = e.EV_KEY in capabilities and e.EV_SYN in capabilities
+        # is_switch = (
+        #     e.EV_SW in capabilities
+        #     or len(capabilities[e.EV_KEY]) < MINIMUM_KEYS_FOR_KEYBOARD
+        # )
+        # is_keyboard = e.EV_KEY in capabilities and e.EV_SYN in capabilities
         # Check for some common keys to make sure it's really a keyboard
         keys = device.capabilities().get(e.EV_KEY, [])
         keyboard_keys_present = any(
             key in keys
             for key in [e.KEY_ESC, e.KEY_SPACE, e.KEY_ENTER, e.KEY_LEFTSHIFT]
         )
-        return not is_uinput and keyboard_keys_present and is_keyboard and not is_switch
+        return not is_uinput and keyboard_keys_present
+
+    def _grab_devices(self):
+        for device in self._devices:
+            # Wait until no keys are pressed before grabbing to prevent keys getting stuck.
+            # If a device is grabbed when keys are being pressed, the key will
+            # appear to be always pressed down until the device is ungrabbed and the
+            # key is pressed again.
+            # See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
+            # There is likely a race condition here between checking active keys and
+            # actually grabbing the device.
+            if active_keys := device.active_keys():
+                log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
+                for _ in device.read_loop():
+                    if not device.active_keys():
+                        break
+                log.info("Active keys cleared. Continuing")
+            device.grab()
 
     def start(self):
         self._grab_devices()
@@ -500,11 +518,40 @@ class KeyboardCapture(Capture):
         It does add a little bit of delay, but that is not noticeable.
         """
         self._suppressed_keys = suppressed_keys
+        print("Suppressed keys:", self._suppressed_keys)
 
     def _run(self):
         from evdev import categorize
         log.debug("Loop starting")
+
         keys_pressed_with_modifier: set[int] = set()
+        down_modifier_keys: set[int] = set()
+        def _should_suppress(event) -> bool:
+            if event.code in MODIFIER_KEY_CODES:
+                # Can't use if-else because there is a third case: key_hold
+                if event.value == KeyEvent.key_down:
+                    down_modifier_keys.add(event.code)
+                elif event.value == KeyEvent.key_up:
+                    down_modifier_keys.discard(event.code)
+                return False
+            key = KEYCODE_TO_KEY.get(event.code, None)
+            if key is None:
+                # Key is unhandled. Don't suppress
+                return False
+            if event.value == KeyEvent.key_down and down_modifier_keys:
+                keys_pressed_with_modifier.add(event.code)
+                return False
+            if event.value == KeyEvent.key_up and event.code in keys_pressed_with_modifier:
+                # Must pass through key up event if key was pressed with modifier
+                # or else it will stay pressed down and start repeating.
+                # Must release even if modifier key was released first
+                keys_pressed_with_modifier.discard(event.code)
+                return False
+            suppressed = key in self._suppressed_keys
+            print(f"{key} is suppressed: {suppressed}")
+            return suppressed
+        
+
         with open("keylog.txt", "w") as keylog_file:
             try:
                 while True:
@@ -533,42 +580,16 @@ class KeyboardCapture(Capture):
                                     self._running = False
                                     return
 
-                                # The event.value == KeyEvent.key_up check in the if handles this case:
-                                # Press a normal key, then modifier, then release key, then modifier. 
-                                # If this was not here, because modifier is held when key is released, it is not sent to engine
-                                # So engine thinks key is still held down
-                                active_keys = device.active_keys()
-                                modifier_active = any(key in MODIFIER_KEY_CODES for key in active_keys)
-                                if event.code in MODIFIER_KEY_CODES:
-                                    # Pass through modifier keys
-                                    pass
-                                elif modifier_active:
-                                    print("modifier_active", file=keylog_file, flush=True)
-                                    if event.value == KeyEvent.key_down and event.code in KEYCODE_TO_KEY:
-                                        keys_pressed_with_modifier.add(event.code)
-                                        print("New keys_pressed_with_modifier", keys_pressed_with_modifier, file=keylog_file, flush=True)
-                                    elif event.value == KeyEvent.key_up:
-                                        if event.code in keys_pressed_with_modifier:
-                                            keys_pressed_with_modifier.discard(event.code)
-                                            print("Key released with modifier. new keys_pressed_with_modifier", keys_pressed_with_modifier, file=keylog_file, flush=True)
-                                        else:
-                                            if event.code in KEYCODE_TO_KEY:
-                                                key_name = KEYCODE_TO_KEY[event.code]
-                                                self.key_up(key_name)
-                                elif event.value == KeyEvent.key_up:
-                                    if event.code in keys_pressed_with_modifier:
-                                        keys_pressed_with_modifier.discard(event.code)
-                                        print("Key released with modifier. new keys_pressed_with_modifier", keys_pressed_with_modifier, file=keylog_file, flush=True)
-                                    elif event.code in KEYCODE_TO_KEY:
-                                        key_name = KEYCODE_TO_KEY[event.code]
-                                        self.key_up(key_name)
-                                        if key_name in self._suppressed_keys:
-                                            continue
-                                elif event.value == KeyEvent.key_down and event.code in KEYCODE_TO_KEY:
+                                if _should_suppress(event):
                                     key_name = KEYCODE_TO_KEY[event.code]
-                                    self.key_down(key_name)
-                                    if key_name in self._suppressed_keys:
-                                        continue
+                                    if event.value == KeyEvent.key_down:
+                                        self.key_down(key_name)
+                                    elif event.value == KeyEvent.key_up:
+                                        assert event.value == KeyEvent.key_up, "actual value was " + str(event.value)
+                                        self.key_up(key_name)
+                                    # Don't passthrough. Skip rest of this loop
+                                    continue
+
                             # Passthrough event
                             print("Passing through previous event", file=keylog_file, flush=True)
                             self._ui.write_event(event)

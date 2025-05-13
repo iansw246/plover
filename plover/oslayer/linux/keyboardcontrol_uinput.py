@@ -18,122 +18,32 @@ class KeyCodeInfo:
 # Tuple is (keycode, is_shifted)
 BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     # Modifiers
-    "alt_l": KeyCodeInfo(keycode=e.KEY_LEFTALT, is_shifted=False),
-    "alt_r": KeyCodeInfo(keycode=e.KEY_RIGHTALT, is_shifted=False),
-    "alt": KeyCodeInfo(keycode=e.KEY_LEFTALT, is_shifted=False),
-    "ctrl_l": KeyCodeInfo(keycode=e.KEY_LEFTCTRL, is_shifted=False),
-    "ctrl_r": KeyCodeInfo(keycode=e.KEY_RIGHTCTRL, is_shifted=False),
-    "ctrl": KeyCodeInfo(keycode=e.KEY_LEFTCTRL, is_shifted=False),
-    "control_l": KeyCodeInfo(keycode=e.KEY_LEFTCTRL, is_shifted=False),
-    "control_r": KeyCodeInfo(keycode=e.KEY_RIGHTCTRL, is_shifted=False),
-    "control": KeyCodeInfo(keycode=e.KEY_LEFTCTRL, is_shifted=False),
-    "shift_l": KeyCodeInfo(keycode=e.KEY_LEFTSHIFT, is_shifted=False),
-    "shift_r": KeyCodeInfo(keycode=e.KEY_RIGHTSHIFT, is_shifted=False),
-    "shift": KeyCodeInfo(keycode=e.KEY_LEFTSHIFT, is_shifted=False),
-    "super_l": KeyCodeInfo(keycode=e.KEY_LEFTMETA, is_shifted=False),
-    "super_r": KeyCodeInfo(keycode=e.KEY_RIGHTMETA, is_shifted=False),
-    "super": KeyCodeInfo(keycode=e.KEY_LEFTMETA, is_shifted=False),
-    # Number row
-    "`": KeyCodeInfo(keycode=e.KEY_GRAVE, is_shifted=False),
-    "~": KeyCodeInfo(keycode=e.KEY_GRAVE, is_shifted=True),
-    "1": KeyCodeInfo(keycode=e.KEY_1, is_shifted=False),
-    "!": KeyCodeInfo(keycode=e.KEY_1, is_shifted=True),
-    "2": KeyCodeInfo(keycode=e.KEY_2, is_shifted=False),
-    "@": KeyCodeInfo(keycode=e.KEY_2, is_shifted=True),
-    "3": KeyCodeInfo(keycode=e.KEY_3, is_shifted=False),
-    "#": KeyCodeInfo(keycode=e.KEY_3, is_shifted=True),
-    "4": KeyCodeInfo(keycode=e.KEY_4, is_shifted=False),
-    "$": KeyCodeInfo(keycode=e.KEY_4, is_shifted=True),
-    "5": KeyCodeInfo(keycode=e.KEY_5, is_shifted=False),
-    "%": KeyCodeInfo(keycode=e.KEY_5, is_shifted=True),
-    "6": KeyCodeInfo(keycode=e.KEY_6, is_shifted=False),
-    "^": KeyCodeInfo(keycode=e.KEY_6, is_shifted=True),
-    "7": KeyCodeInfo(keycode=e.KEY_7, is_shifted=False),
-    "&": KeyCodeInfo(keycode=e.KEY_7, is_shifted=True),
-    "8": KeyCodeInfo(keycode=e.KEY_8, is_shifted=False),
-    "*": KeyCodeInfo(keycode=e.KEY_8, is_shifted=True),
-    "9": KeyCodeInfo(keycode=e.KEY_9, is_shifted=False),
-    "(": KeyCodeInfo(keycode=e.KEY_9, is_shifted=True),
-    "0": KeyCodeInfo(keycode=e.KEY_0, is_shifted=False),
-    ")": KeyCodeInfo(keycode=e.KEY_0, is_shifted=True),
-    "-": KeyCodeInfo(keycode=e.KEY_MINUS, is_shifted=False),
-    "_": KeyCodeInfo(keycode=e.KEY_MINUS, is_shifted=True),
-    "=": KeyCodeInfo(keycode=e.KEY_EQUAL, is_shifted=False),
-    "+": KeyCodeInfo(keycode=e.KEY_EQUAL, is_shifted=True),
-    "\b": KeyCodeInfo(keycode=e.KEY_BACKSPACE, is_shifted=False),
-    # First row
-    "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
-    "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
-    "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
-    "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
-    "e": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
-    "E": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
-    "r": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
-    "R": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
-    "t": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
-    "T": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
-    "y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
-    "Y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
-    "u": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
-    "U": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
-    "i": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
-    "I": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
-    "o": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
-    "O": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
-    "p": KeyCodeInfo(keycode=e.KEY_P, is_shifted=False),
-    "P": KeyCodeInfo(keycode=e.KEY_P, is_shifted=True),
-    "[": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=False),
-    "{": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=True),
-    "]": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=False),
-    "}": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=True),
-    "\\": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=False),
-    "|": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=True),
-    # Second row
-    "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
-    "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
-    "s": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
-    "S": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
-    "d": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
-    "D": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
-    "f": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
-    "F": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
-    "g": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
-    "G": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
-    "h": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
-    "H": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
-    "j": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
-    "J": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
-    "k": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
-    "K": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
-    "l": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
-    "L": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
-    ";": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=False),
-    ":": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=True),
-    "'": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=False),
-    "\"": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=True),
-
-    # Third row
-    "z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
-    "Z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
-    "x": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
-    "X": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
-    "c": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
-    "C": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
-    "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
-    "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
-    "b": KeyCodeInfo(keycode=e.KEY_B, is_shifted=False),
-    "B": KeyCodeInfo(keycode=e.KEY_B, is_shifted=True),
-    "n": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
-    "N": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
-    "m": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
-    "M": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
-    ",": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=False),
-    "<": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=True),
-    ".": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=False),
-    ">": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=True),
-    "/": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=False),
-    "?": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=True),
-
+    "alt_l": e.KEY_LEFTALT,
+    "alt_r": e.KEY_RIGHTALT,
+    "alt": e.KEY_LEFTALT,
+    "ctrl_l": e.KEY_LEFTCTRL,
+    "ctrl_r": e.KEY_RIGHTCTRL,
+    "ctrl": e.KEY_LEFTCTRL,
+    "control_l": e.KEY_LEFTCTRL,
+    "control_r": e.KEY_RIGHTCTRL,
+    "control": e.KEY_LEFTCTRL,
+    "shift_l": e.KEY_LEFTSHIFT,
+    "shift_r": e.KEY_RIGHTSHIFT,
+    "shift": e.KEY_LEFTSHIFT,
+    "super_l": e.KEY_LEFTMETA,
+    "super_r": e.KEY_RIGHTMETA,
+    "super": e.KEY_LEFTMETA,
+    # Numbers
+    "1": e.KEY_1,
+    "2": e.KEY_2,
+    "3": e.KEY_3,
+    "4": e.KEY_4,
+    "5": e.KEY_5,
+    "6": e.KEY_6,
+    "7": e.KEY_7,
+    "8": e.KEY_8,
+    "9": e.KEY_9,
+    "0": e.KEY_0,
     # Symbols
     " ": KeyCodeInfo(keycode=e.KEY_SPACE, is_shifted=False),
     "\b": KeyCodeInfo(keycode=e.KEY_BACKSPACE, is_shifted=False),
@@ -456,26 +366,13 @@ class KeyboardCapture(Capture):
         Filter out devices that should not be grabbed and suppressed, to avoid output feeding into itself.
         """
         is_uinput = device.name == "py-evdev-uinput" or device.phys == "py-evdev-uinput"
-        capabilities = device.capabilities()
-        is_mouse = e.EV_REL in capabilities or e.EV_ABS in capabilities
-        return not is_uinput and not is_mouse
-    
-    def _grab_devices(self):
-        for device in self._devices:
-            # Wait until no keys are pressed before grabbing to prevent keys getting stuck.
-            # If a device is grabbed when keys are being pressed, the key will
-            # appear to be always pressed down until the device is ungrabbed and the
-            # key is pressed again.
-            # See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
-            # There is likely a race condition here between checking active keys and
-            # actually grabbing the device.
-            if active_keys := device.active_keys():
-                log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
-                for _ in device.read_loop():
-                    if not device.active_keys():
-                        break
-                log.info("Active keys cleared. Continuing")
-            device.grab()
+        # Check for some common keys to make sure it's really a keyboard
+        keys = device.capabilities().get(e.EV_KEY, [])
+        keyboard_keys_present = any(
+            key in keys
+            for key in [e.KEY_ESC, e.KEY_SPACE, e.KEY_ENTER, e.KEY_LEFTSHIFT]
+        )
+        return not is_uinput and keyboard_keys_present
 
     def start(self):
         self._grab_devices()

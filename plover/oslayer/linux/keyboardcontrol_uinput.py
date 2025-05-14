@@ -14,8 +14,9 @@ from plover import log
 @dataclass
 class KeyCodeInfo:
     keycode: int
+    # Whether shift needs to be pressed before sending the keycode to send the key
     is_shifted: bool
-# Tuple is (keycode, is_shifted)
+
 BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     # Modifiers
     "alt_l": KeyCodeInfo(keycode=e.KEY_LEFTALT, is_shifted=False),
@@ -61,82 +62,8 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "=": KeyCodeInfo(keycode=e.KEY_EQUAL, is_shifted=False),
     "+": KeyCodeInfo(keycode=e.KEY_EQUAL, is_shifted=True),
     "\b": KeyCodeInfo(keycode=e.KEY_BACKSPACE, is_shifted=False),
-    # First row
-    "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
-    "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
-    "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
-    "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
-    "e": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
-    "E": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
-    "r": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
-    "R": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
-    "t": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
-    "T": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
-    "y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
-    "Y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
-    "u": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
-    "U": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
-    "i": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
-    "I": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
-    "o": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
-    "O": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
-    "p": KeyCodeInfo(keycode=e.KEY_P, is_shifted=False),
-    "P": KeyCodeInfo(keycode=e.KEY_P, is_shifted=True),
-    "[": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=False),
-    "{": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=True),
-    "]": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=False),
-    "}": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=True),
-    "\\": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=False),
-    "|": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=True),
-    # Second row
-    "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
-    "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
-    "s": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
-    "S": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
-    "d": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
-    "D": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
-    "f": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
-    "F": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
-    "g": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
-    "G": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
-    "h": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
-    "H": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
-    "j": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
-    "J": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
-    "k": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
-    "K": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
-    "l": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
-    "L": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
-    ";": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=False),
-    ":": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=True),
-    "'": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=False),
-    "\"": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=True),
-
-    # Third row
-    "z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
-    "Z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
-    "x": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
-    "X": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
-    "c": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
-    "C": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
-    "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
-    "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
-    "b": KeyCodeInfo(keycode=e.KEY_B, is_shifted=False),
-    "B": KeyCodeInfo(keycode=e.KEY_B, is_shifted=True),
-    "n": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
-    "N": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
-    "m": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
-    "M": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
-    ",": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=False),
-    "<": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=True),
-    ".": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=False),
-    ">": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=True),
-    "/": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=False),
-    "?": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=True),
-
     # Symbols
     " ": KeyCodeInfo(keycode=e.KEY_SPACE, is_shifted=False),
-    "\b": KeyCodeInfo(keycode=e.KEY_BACKSPACE, is_shifted=False),
     "\n": KeyCodeInfo(keycode=e.KEY_ENTER, is_shifted=False),
     # https://github.com/openstenoproject/plover/blob/9b5a357f1fb57cb0a9a8596ae12cd1e84fcff6c4/plover/oslayer/osx/keyboardcontrol.py#L75
     # https://gist.github.com/jfortin42/68a1fcbf7738a1819eb4b2eef298f4f8
@@ -146,6 +73,22 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "delete": KeyCodeInfo(keycode=e.KEY_DELETE, is_shifted=False),
     "escape": KeyCodeInfo(keycode=e.KEY_ESC, is_shifted=False),
     "clear": KeyCodeInfo(keycode=e.KEY_CLEAR, is_shifted=False),
+    "[": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=False),
+    "{": KeyCodeInfo(keycode=e.KEY_LEFTBRACE, is_shifted=True),
+    "]": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=False),
+    "}": KeyCodeInfo(keycode=e.KEY_RIGHTBRACE, is_shifted=True),
+    "\\": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=False),
+    "|": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=True),
+    ";": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=False),
+    ":": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=True),
+    "'": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=False),
+    "\"": KeyCodeInfo(keycode=e.KEY_APOSTROPHE, is_shifted=True),
+    ",": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=False),
+    "<": KeyCodeInfo(keycode=e.KEY_COMMA, is_shifted=True),
+    ".": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=False),
+    ">": KeyCodeInfo(keycode=e.KEY_DOT, is_shifted=True),
+    "/": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=False),
+    "?": KeyCodeInfo(keycode=e.KEY_SLASH, is_shifted=True),
     # Navigation
     "up": KeyCodeInfo(keycode=e.KEY_UP, is_shifted=False),
     "down": KeyCodeInfo(keycode=e.KEY_DOWN, is_shifted=False),
@@ -219,9 +162,6 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "kbdbrightnessdown": KeyCodeInfo(keycode=e.KEY_KBDILLUMDOWN, is_shifted=False),
 }
 
-# Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
-assert all(c in BASE_LAYOUT for c in string.printable[:-5])
-
 MODIFIER_KEY_CODES: set[int] = {
     e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT,
     e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL,
@@ -234,108 +174,243 @@ LAYOUTS = {
     # Only specify keys that differ from qwerty
     "qwerty": {
         **BASE_LAYOUT,
+        # First row
+        "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
+        "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
+        "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
+        "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
+        "e": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
+        "E": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
+        "r": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
+        "R": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
+        "t": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
+        "T": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
+        "y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
+        "Y": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
+        "u": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
+        "U": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
+        "i": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
+        "I": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
+        "o": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
+        "O": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
+        "p": KeyCodeInfo(keycode=e.KEY_P, is_shifted=False),
+        "P": KeyCodeInfo(keycode=e.KEY_P, is_shifted=True),
+        # Second row
+        "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
+        "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
+        "s": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
+        "S": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
+        "d": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
+        "D": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
+        "f": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
+        "F": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
+        "g": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
+        "G": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
+        "h": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
+        "H": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
+        "j": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
+        "J": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
+        "k": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
+        "K": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
+        "l": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
+        "L": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
+
+        # Third row
+        "z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
+        "Z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
+        "x": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
+        "X": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
+        "c": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
+        "C": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
+        "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
+        "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
+        "b": KeyCodeInfo(keycode=e.KEY_B, is_shifted=False),
+        "B": KeyCodeInfo(keycode=e.KEY_B, is_shifted=True),
+        "n": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
+        "N": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
+        "m": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
+        "M": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
     },
     "qwertz": {
         **BASE_LAYOUT,
         # Top row
-        "q": e.KEY_Q,
-        "w": e.KEY_W,
-        "e": e.KEY_E,
-        "r": e.KEY_R,
-        "t": e.KEY_T,
-        "z": e.KEY_Y,
-        "u": e.KEY_U,
-        "i": e.KEY_I,
-        "o": e.KEY_O,
-        "p": e.KEY_P,
+        "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
+        "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
+        "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
+        "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
+        "e": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
+        "E": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
+        "r": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
+        "R": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
+        "t": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
+        "T": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
+        "z": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
+        "Z": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
+        "u": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
+        "U": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
+        "i": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
+        "I": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
+        "o": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
+        "O": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
+        "p": KeyCodeInfo(keycode=e.KEY_P, is_shifted=False),
+        "P": KeyCodeInfo(keycode=e.KEY_P, is_shifted=True),
         # Middle row
-        "a": e.KEY_A,
-        "s": e.KEY_S,
-        "d": e.KEY_D,
-        "f": e.KEY_F,
-        "g": e.KEY_G,
-        "h": e.KEY_H,
-        "j": e.KEY_J,
-        "k": e.KEY_K,
-        "l": e.KEY_L,
+        "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
+        "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
+        "s": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
+        "S": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
+        "d": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
+        "D": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
+        "f": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
+        "F": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
+        "g": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
+        "G": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
+        "h": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
+        "H": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
+        "j": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
+        "J": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
+        "k": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
+        "K": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
+        "l": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
+        "L": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
         # Bottom row
-        "y": e.KEY_Z,
-        "x": e.KEY_X,
-        "c": e.KEY_C,
-        "v": e.KEY_V,
-        "b": e.KEY_B,
-        "n": e.KEY_N,
-        "m": e.KEY_M,
+        "y": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
+        "Y": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
+        "x": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
+        "X": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
+        "c": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
+        "C": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
+        "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
+        "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
+        "b": KeyCodeInfo(keycode=e.KEY_B, is_shifted=False),
+        "B": KeyCodeInfo(keycode=e.KEY_B, is_shifted=True),
+        "n": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
+        "N": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
+        "m": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
+        "M": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
     },
     "colemak": {
         **BASE_LAYOUT,
         # Top row
-        "q": e.KEY_Q,
-        "w": e.KEY_W,
-        "f": e.KEY_E,
-        "p": e.KEY_R,
-        "g": e.KEY_T,
-        "j": e.KEY_Y,
-        "l": e.KEY_U,
-        "u": e.KEY_I,
-        "y": e.KEY_O,
+        "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
+        "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
+        "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
+        "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
+        "f": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
+        "F": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
+        "p": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
+        "P": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
+        "g": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
+        "G": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
+        "j": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
+        "J": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
+        "l": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
+        "L": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
+        "u": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
+        "U": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
+        "y": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
+        "Y": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
         # Middle row
-        "a": e.KEY_A,
-        "r": e.KEY_S,
-        "s": e.KEY_D,
-        "t": e.KEY_F,
-        "d": e.KEY_G,
-        "h": e.KEY_H,
-        "n": e.KEY_J,
-        "e": e.KEY_K,
-        "i": e.KEY_L,
-        "o": e.KEY_SEMICOLON,
+        "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
+        "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
+        "r": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
+        "R": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
+        "s": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
+        "S": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
+        "t": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
+        "T": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
+        "d": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
+        "D": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
+        "h": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
+        "H": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
+        "n": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
+        "N": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
+        "e": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
+        "E": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
+        "i": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
+        "I": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
+        "o": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=False),
+        "O": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=True),
         # Bottom row
-        "z": e.KEY_Z,
-        "x": e.KEY_X,
-        "c": e.KEY_C,
-        "v": e.KEY_V,
-        "b": e.KEY_B,
-        "k": e.KEY_N,
-        "m": e.KEY_M,
+        "z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
+        "Z": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
+        "x": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
+        "X": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
+        "c": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
+        "C": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
+        "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
+        "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
+        "b": KeyCodeInfo(keycode=e.KEY_B, is_shifted=False),
+        "B": KeyCodeInfo(keycode=e.KEY_B, is_shifted=True),
+        "k": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
+        "K": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
+        "m": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
+        "M": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
     },
     "colemak-dh": {
         **BASE_LAYOUT,
         # Top row
-        "q": e.KEY_Q,
-        "w": e.KEY_W,
-        "f": e.KEY_E,
-        "p": e.KEY_R,
-        "b": e.KEY_T,
-        "j": e.KEY_Y,
-        "l": e.KEY_U,
-        "u": e.KEY_I,
-        "y": e.KEY_O,
+        "q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=False),
+        "Q": KeyCodeInfo(keycode=e.KEY_Q, is_shifted=True),
+        "w": KeyCodeInfo(keycode=e.KEY_W, is_shifted=False),
+        "W": KeyCodeInfo(keycode=e.KEY_W, is_shifted=True),
+        "f": KeyCodeInfo(keycode=e.KEY_E, is_shifted=False),
+        "F": KeyCodeInfo(keycode=e.KEY_E, is_shifted=True),
+        "p": KeyCodeInfo(keycode=e.KEY_R, is_shifted=False),
+        "P": KeyCodeInfo(keycode=e.KEY_R, is_shifted=True),
+        "b": KeyCodeInfo(keycode=e.KEY_T, is_shifted=False),
+        "B": KeyCodeInfo(keycode=e.KEY_T, is_shifted=True),
+        "j": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=False),
+        "J": KeyCodeInfo(keycode=e.KEY_Y, is_shifted=True),
+        "l": KeyCodeInfo(keycode=e.KEY_U, is_shifted=False),
+        "L": KeyCodeInfo(keycode=e.KEY_U, is_shifted=True),
+        "u": KeyCodeInfo(keycode=e.KEY_I, is_shifted=False),
+        "U": KeyCodeInfo(keycode=e.KEY_I, is_shifted=True),
+        "y": KeyCodeInfo(keycode=e.KEY_O, is_shifted=False),
+        "Y": KeyCodeInfo(keycode=e.KEY_O, is_shifted=True),
         # Middle row
-        "a": e.KEY_A,
-        "r": e.KEY_S,
-        "s": e.KEY_D,
-        "t": e.KEY_F,
-        "g": e.KEY_G,
-        "m": e.KEY_H,
-        "n": e.KEY_J,
-        "e": e.KEY_K,
-        "i": e.KEY_L,
-        "o": e.KEY_SEMICOLON,
+        "a": KeyCodeInfo(keycode=e.KEY_A, is_shifted=False),
+        "A": KeyCodeInfo(keycode=e.KEY_A, is_shifted=True),
+        "r": KeyCodeInfo(keycode=e.KEY_S, is_shifted=False),
+        "R": KeyCodeInfo(keycode=e.KEY_S, is_shifted=True),
+        "s": KeyCodeInfo(keycode=e.KEY_D, is_shifted=False),
+        "S": KeyCodeInfo(keycode=e.KEY_D, is_shifted=True),
+        "t": KeyCodeInfo(keycode=e.KEY_F, is_shifted=False),
+        "T": KeyCodeInfo(keycode=e.KEY_F, is_shifted=True),
+        "g": KeyCodeInfo(keycode=e.KEY_G, is_shifted=False),
+        "G": KeyCodeInfo(keycode=e.KEY_G, is_shifted=True),
+        "m": KeyCodeInfo(keycode=e.KEY_H, is_shifted=False),
+        "M": KeyCodeInfo(keycode=e.KEY_H, is_shifted=True),
+        "n": KeyCodeInfo(keycode=e.KEY_J, is_shifted=False),
+        "N": KeyCodeInfo(keycode=e.KEY_J, is_shifted=True),
+        "e": KeyCodeInfo(keycode=e.KEY_K, is_shifted=False),
+        "E": KeyCodeInfo(keycode=e.KEY_K, is_shifted=True),
+        "i": KeyCodeInfo(keycode=e.KEY_L, is_shifted=False),
+        "I": KeyCodeInfo(keycode=e.KEY_L, is_shifted=True),
+        "o": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=False),
+        "O": KeyCodeInfo(keycode=e.KEY_SEMICOLON, is_shifted=True),
         # Bottom row
-        "z": e.KEY_BACKSLASH,  # less than-key
-        "x": e.KEY_Z,
-        "c": e.KEY_X,
-        "d": e.KEY_C,
-        "v": e.KEY_V,
-        "k": e.KEY_N,
-        "h": e.KEY_M,
+        "z": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=False),  # less than-key
+        "Z": KeyCodeInfo(keycode=e.KEY_BACKSLASH, is_shifted=True),
+        "x": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=False),
+        "X": KeyCodeInfo(keycode=e.KEY_Z, is_shifted=True),
+        "c": KeyCodeInfo(keycode=e.KEY_X, is_shifted=False),
+        "C": KeyCodeInfo(keycode=e.KEY_X, is_shifted=True),
+        "d": KeyCodeInfo(keycode=e.KEY_C, is_shifted=False),
+        "D": KeyCodeInfo(keycode=e.KEY_C, is_shifted=True),
+        "v": KeyCodeInfo(keycode=e.KEY_V, is_shifted=False),
+        "V": KeyCodeInfo(keycode=e.KEY_V, is_shifted=True),
+        "k": KeyCodeInfo(keycode=e.KEY_N, is_shifted=False),
+        "K": KeyCodeInfo(keycode=e.KEY_N, is_shifted=True),
+        "h": KeyCodeInfo(keycode=e.KEY_M, is_shifted=False),
+        "H": KeyCodeInfo(keycode=e.KEY_M, is_shifted=True),
     },
 }
 
-# Ignore shifted keys with `not v[1]`
-# us_qwerty = {v[0]: k for k, v in BASE_LAYOUT.items() if not v[1]}
-KEYCODE_TO_KEY = {v.keycode: k for k, v in BASE_LAYOUT.items() if not v.is_shifted}
+# Ignore shifted keys
+KEYCODES_TO_SUPRESS = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if not v.is_shifted}
+# Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
+assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
 class KeyboardEmulation(GenericKeyboardEmulation):
     def __init__(self):
@@ -423,10 +498,6 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 log.warning("Key " + key + " is not valid!")
         self._ui.syn()
 
-# Ignore devices with too few keys. These are likely switches or power button devices
-# In any case, they have too few keys to be useful as a keyboard
-MINIMUM_KEYS_FOR_KEYBOARD: int = 8
-
 class KeyboardCapture(Capture):
     _thread: threading.Thread | None
     _selector: selectors.BaseSelector
@@ -461,12 +532,6 @@ class KeyboardCapture(Capture):
         """
         capabilities = device.capabilities()
         is_uinput = device.name == "py-evdev-uinput" or device.phys == "py-evdev-uinput"
-        # Ignore power button, lid switches, and similar
-        # is_switch = (
-        #     e.EV_SW in capabilities
-        #     or len(capabilities[e.EV_KEY]) < MINIMUM_KEYS_FOR_KEYBOARD
-        # )
-        # is_keyboard = e.EV_KEY in capabilities and e.EV_SYN in capabilities
         # Check for some common keys to make sure it's really a keyboard
         keys = device.capabilities().get(e.EV_KEY, [])
         keyboard_keys_present = any(
@@ -534,7 +599,7 @@ class KeyboardCapture(Capture):
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
                 return False
-            key = KEYCODE_TO_KEY.get(event.code, None)
+            key = KEYCODES_TO_SUPRESS.get(event.code, None)
             if key is None:
                 # Key is unhandled. Don't suppress
                 return False
@@ -581,7 +646,7 @@ class KeyboardCapture(Capture):
                                     return
 
                                 if _should_suppress(event):
-                                    key_name = KEYCODE_TO_KEY[event.code]
+                                    key_name = KEYCODES_TO_SUPRESS[event.code]
                                     if event.value == KeyEvent.key_down:
                                         self.key_down(key_name)
                                     elif event.value == KeyEvent.key_up:
@@ -594,7 +659,7 @@ class KeyboardCapture(Capture):
                             print("Passing through previous event", file=keylog_file, flush=True)
                             self._ui.write_event(event)
             finally:
-                # Always ungrab devices to prevent exceptsions from causing input devices
+                # Always ungrab devices to prevent exceptions from causing input devices
                 # to be blocked
                 print("Ungrabbing devices")
                 for device in self._devices:

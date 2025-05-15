@@ -15,9 +15,10 @@ from plover import log
 @dataclass
 class KeyCodeInfo:
     keycode: int
-    # Modifiers that must be pressed with the keycode to send the key
+    # Other keycodes that must be pressed with the keycode to send the key
     modifiers: Sequence[int] = ()
 
+# Shared keys between all layouts
 BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     # Modifiers
     "alt_l": KeyCodeInfo(e.KEY_LEFTALT),
@@ -481,9 +482,9 @@ LAYOUTS = {
     },
 }
 
-# Ignore shifted keys
+# Ignore keys with modifiers
 KEYCODES_TO_SUPRESS = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
-# Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
+# Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
 class KeyboardEmulation(GenericKeyboardEmulation):
@@ -502,13 +503,12 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         """Helper function to get the keycode and potential modifiers for a key."""
         if key in self._KEY_TO_KEYCODEINFO:
             key_map_info = self._KEY_TO_KEYCODEINFO[key]
-            print("key: %s, key_map_info: %s, modifiers: %s" % (key, key_map_info, key_map_info.modifiers))
             return (key_map_info.keycode, key_map_info.modifiers)
         return (None, [])
 
     def _press_key(self, key, state):
         self._ui.write(e.EV_KEY, key, 1 if state else 0)
-        # self._ui.syn()
+        self._ui.syn()
 
     """
     Send a unicode character.
@@ -521,20 +521,19 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def _send_unicode(self, hex):
         self.send_key_combination("ctrl_l(shift(u))")
-        # self.delay()
+        self.delay()
         self.send_string(hex)
-        # self.delay()
+        self.delay()
         self._send_char("\n")
 
     def _send_char(self, char):
         (base, mods) = self._get_key(char)
-        print("Sending char", char, char.encode("utf-8"), "base", base, "mods", mods)
 
         # Key can be sent with a key combination
         if base is not None:
             for mod in mods:
                 self._press_key(mod, True)
-            # self.delay()
+            self.delay()
             self._press_key(base, True)
             self._press_key(base, False)
             for mod in mods:
@@ -542,7 +541,6 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
         # Key press can not be emulated - send unicode symbol instead
         else:
-            print("Sending unicode char", char)
             # Convert to hex and remove leading "0x"
             unicode_hex = hex(ord(char))[2:]
             self._send_unicode(unicode_hex)
@@ -550,25 +548,22 @@ class KeyboardEmulation(GenericKeyboardEmulation):
     def send_string(self, string):
         for key in self.with_delay(list(string)):
             self._send_char(key)
-        self._ui.syn()
 
     def send_backspaces(self, count):
         for _ in range(count):
             self._send_char("\b")
-        self._ui.syn()
 
     def send_key_combination(self, combo):
         # https://plover.readthedocs.io/en/latest/api/key_combo.html#module-plover.key_combo
         key_events = parse_key_combo(combo)
 
-        for key, pressed in key_events:
+        for key, pressed in self.with_delay(key_events):
             (base, _) = self._get_key(key)
 
             if base is not None:
                 self._press_key(base, pressed)
             else:
                 log.warning("Key " + key + " is not valid!")
-        self._ui.syn()
 
 class KeyboardCapture(Capture):
     _thread: threading.Thread | None
@@ -595,7 +590,6 @@ class KeyboardCapture(Capture):
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
         keyboard_devices = [dev for dev in input_devices if self._filter_devices(dev)]
-        print(keyboard_devices)
         return keyboard_devices
 
     def _filter_devices(self, device):
@@ -620,13 +614,12 @@ class KeyboardCapture(Capture):
             # key is pressed again.
             # See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
             # There is likely a race condition here between checking active keys and
-            # actually grabbing the device.
-            if active_keys := device.active_keys():
-                log.info("%s has active keys %s. Waiting for keys to clear...", device, active_keys)
+            # actually grabbing the device, but it appears to work fine.
+            if len(device.active_keys()) > 0:
                 for _ in device.read_loop():
-                    if not device.active_keys():
+                    if len(device.active_keys()) == 0:
+                        # No keys are pressed. Grab the device
                         break
-                log.info("Active keys cleared. Continuing")
             device.grab()
 
     def start(self):
@@ -636,11 +629,9 @@ class KeyboardCapture(Capture):
         self._thread = threading.Thread(target=self._run)
         self._thread.start()
         self._running = True
-        log.debug("Done starting")
 
     def cancel(self):
-        log.debug("Cancel")
-        # Write some arbitrary data to the pipe to signal thread to stop
+        # Write some arbitrary data to the pipe to signal the _run thread to stop
         os.write(self._thread_write_pipe, b"a")
         if self._thread is not None:
             self._thread.join()
@@ -657,11 +648,9 @@ class KeyboardCapture(Capture):
         self._suppressed_keys = suppressed_keys
 
     def _run(self):
-        from evdev import categorize
-        log.debug("Loop starting")
-
         keys_pressed_with_modifier: set[int] = set()
         down_modifier_keys: set[int] = set()
+
         def _should_suppress(event) -> bool:
             if event.code in MODIFIER_KEY_CODES:
                 # Can't use if-else because there is a third case: key_hold
@@ -685,56 +674,35 @@ class KeyboardCapture(Capture):
                 return False
             suppressed = key in self._suppressed_keys
             return suppressed
-        
 
-        with open("keylog.txt", "w") as keylog_file:
-            try:
-                while True:
-                    for key, events in self._selector.select():
-                        # print("Selector key:", key, "events:", events)
-                        if key.fd == self._thread_read_pipe:
-                            # Clear the pipe
-                            os.read(key.fd, 999)
-                            return
-                        assert isinstance(key.fileobj, InputDevice)
-                        device: InputDevice = key.fileobj
-                        for event in device.read():
-                            print("Event:", categorize(event), file=keylog_file, flush=True)
-                            if event.type == e.EV_KEY:
-                                # Debug quit key in case bug blocks user input
-                                if event.code == e.KEY_F5:
-                                    log.debug("Debug quit key pressed. Handling thread exiting...")
+        try:
+            while True:
+                for key, events in self._selector.select():
+                    if key.fd == self._thread_read_pipe:
+                        # Clear the pipe
+                        os.read(key.fd, 999)
+                        return
+                    assert isinstance(key.fileobj, InputDevice)
+                    device: InputDevice = key.fileobj
+                    for event in device.read():
+                        if event.type == e.EV_KEY and _should_suppress(event):
+                            key_name = KEYCODES_TO_SUPRESS[event.code]
+                            if event.value == KeyEvent.key_down:
+                                self.key_down(key_name)
+                            elif event.value == KeyEvent.key_up:
+                                self.key_up(key_name)
+                            # Don't passthrough. Skip rest of this loop
+                            continue
 
-                                    for device in self._devices:
-                                        device.ungrab()
-
-                                    for device in self._devices:
-                                        self._selector.unregister(device)
-                                    self._devices = []
-
-                                    self._running = False
-                                    return
-
-                                if _should_suppress(event):
-                                    key_name = KEYCODES_TO_SUPRESS[event.code]
-                                    if event.value == KeyEvent.key_down:
-                                        self.key_down(key_name)
-                                    elif event.value == KeyEvent.key_up:
-                                        self.key_up(key_name)
-                                    # Don't passthrough. Skip rest of this loop
-                                    continue
-
-                            # Passthrough event
-                            print("Passing through previous event", file=keylog_file, flush=True)
-                            self._ui.write_event(event)
-            finally:
-                # Always ungrab devices to prevent exceptions from causing input devices
-                # to be blocked
-                print("Ungrabbing devices")
-                for device in self._devices:
-                    try:
-                        device.ungrab()
-                        self._selector.unregister(device)
-                    except:
-                        log.error("Failed to ungrab device", exc_info=True)
-                self._ui.close()
+                        # Passthrough event
+                        self._ui.write_event(event)
+        finally:
+            # Always ungrab devices to prevent exceptions in the _run loop
+            # from causing grabbed input devices to be blocked
+            for device in self._devices:
+                try:
+                    device.ungrab()
+                    self._selector.unregister(device)
+                except:
+                    log.error("Failed to ungrab device", exc_info=True)
+            self._ui.close()

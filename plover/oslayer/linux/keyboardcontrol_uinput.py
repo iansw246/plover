@@ -4,6 +4,7 @@ import threading
 from dataclasses import dataclass
 import selectors
 import string
+import queue
 
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, KeyEvent
 
@@ -566,22 +567,30 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 log.warning("Key " + key + " is not valid!")
 
 class KeyboardCapture(Capture):
-    _thread: threading.Thread | None
     _selector: selectors.BaseSelector
+    _queue: queue.Queue[tuple[int, bool] | None]
+    _device_thread: threading.Thread | None
     # Pipe to signal _monitor_devices thread to stop
     # The thread will select() on this pipe to know when to stop
-    _thread_read_pipe: int
-    _thread_write_pipe: int
+    # This way, the thread does not need periodically stop reading input devices
+    # and check if it should stop.
+    _device_thread_read_pipe: int | None
+    _device_thread_write_pipe: int | None
+    _steno_thread: threading.Thread | None
 
     def __init__(self):
         super().__init__()
         # This is based on the example from the python-evdev documentation: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-selectors
         self._devices = self._get_devices()
         self._running = False
+
+        self._queue = queue.Queue()
         self._selector = selectors.DefaultSelector()
-        self._thread = None
-        self._thread_read_pipe, self._thread_write_pipe = os.pipe()
-        self._selector.register(self._thread_read_pipe, selectors.EVENT_READ)
+        self._device_thread = None
+        self._device_thread_read_pipe = None
+        self._device_thread_write_pipe = None
+        self._steno_thread = None
+
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
         self._suppressed_keys = []
@@ -625,18 +634,32 @@ class KeyboardCapture(Capture):
 
     def start(self):
         self._grab_devices()
+        self._device_thread_read_pipe, self._device_thread_write_pipe = os.pipe()
+        self._selector.register(self._device_thread_read_pipe, selectors.EVENT_READ)
         for device in self._devices:
             self._selector.register(device, selectors.EVENT_READ)
-        self._thread = threading.Thread(target=self._run)
-        self._thread.start()
+
+        self._device_thread = threading.Thread(target=self._run)
+        self._device_thread.start()
+        self._steno_thread = threading.Thread(target=self._handle_events)
+        self._steno_thread.start()
+
         self._running = True
 
     def cancel(self):
         # Write some arbitrary data to the pipe to signal the _run thread to stop
-        os.write(self._thread_write_pipe, b"a")
-        if self._thread is not None:
-            self._thread.join()
-            self._thread = None
+        os.write(self._device_thread_write_pipe, b"a")
+        if self._device_thread is not None:
+            self._device_thread.join()
+            self._device_thread = None
+
+        if self._device_thread_read_pipe is not None:
+            self._selector.unregister(self._device_thread_read_pipe)
+            os.close(self._device_thread_read_pipe)
+            self._device_thread_read_pipe = None
+        if self._device_thread_write_pipe is not None:
+            os.close(self._device_thread_write_pipe)
+            self._device_thread_write_pipe = None
 
         self._running = False
 
@@ -647,6 +670,18 @@ class KeyboardCapture(Capture):
         It does add a little bit of delay, but that is not noticeable.
         """
         self._suppressed_keys = suppressed_keys
+
+    def _handle_events(self):
+        """Thread to handle process nonsuppressed keyboard events."""
+        while True:
+            event = self._queue.get()
+            if event is None:
+                break
+            key_name, pressed = event
+            if pressed:
+                self.key_down(key_name)
+            else:
+                self.key_up(key_name)
 
     def _run(self):
         keys_pressed_with_modifier: set[int] = set()
@@ -679,23 +714,26 @@ class KeyboardCapture(Capture):
         try:
             while True:
                 for key, events in self._selector.select():
-                    if key.fd == self._thread_read_pipe:
+                    if key.fd == self._device_thread_read_pipe:
                         # Clear the pipe
                         os.read(key.fd, 999)
+                        # Signal other thread to stop
+                        self._queue.put(None)
                         return
                     assert isinstance(key.fileobj, InputDevice)
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         # if event.type == e.EV_KEY and _should_suppress(event):
                         if event.type == e.EV_KEY:
-                            key_name = KEYCODES_TO_SUPRESS[event.code]
-                            if event.value == KeyEvent.key_down:
-                                self.key_down(key_name)
-                            elif event.value == KeyEvent.key_up:
-                                self.key_up(key_name)
-                            if _should_suppress(event):
-                                # Don't passthrough. Skip rest of this loop
-                                continue
+                            if event.code in KEYCODES_TO_SUPRESS:
+                                key_name = KEYCODES_TO_SUPRESS[event.code]
+                                if event.value == KeyEvent.key_down:
+                                    self._queue.put((key_name, True))
+                                elif event.value == KeyEvent.key_up:
+                                    self._queue.put((key_name, False))
+                                if _should_suppress(event):
+                                    # Don't passthrough. Skip rest of this loop
+                                    continue
 
                         # Passthrough event
                         self._ui.write_event(event)

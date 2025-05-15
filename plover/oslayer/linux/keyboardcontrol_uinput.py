@@ -6,7 +6,7 @@ import selectors
 import string
 import queue
 
-from evdev import UInput, ecodes as e, util, InputDevice, list_devices, KeyEvent
+from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
 
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
@@ -484,7 +484,7 @@ LAYOUTS = {
 }
 
 # Ignore keys with modifiers
-KEYCODES_TO_SUPRESS = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
+SUPPRESSED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
@@ -567,7 +567,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 log.warning("Key " + key + " is not valid!")
 
 class KeyboardCapture(Capture):
-    _selector: selectors.BaseSelector
+    _selector: selectors.DefaultSelector
     _queue: queue.Queue[tuple[int, bool] | None]
     _device_thread: threading.Thread | None
     # Pipe to signal _monitor_devices thread to stop
@@ -687,7 +687,7 @@ class KeyboardCapture(Capture):
         keys_pressed_with_modifier: set[int] = set()
         down_modifier_keys: set[int] = set()
 
-        def _should_suppress(event) -> bool:
+        def _should_suppress(event: InputEvent) -> bool:
             if event.code in MODIFIER_KEY_CODES:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
@@ -695,7 +695,7 @@ class KeyboardCapture(Capture):
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
                 return False
-            key = KEYCODES_TO_SUPRESS.get(event.code, None)
+            key = SUPPRESSED_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
                 # Key is unhandled. Don't suppress
                 return False
@@ -723,10 +723,12 @@ class KeyboardCapture(Capture):
                     assert isinstance(key.fileobj, InputDevice)
                     device: InputDevice = key.fileobj
                     for event in device.read():
-                        # if event.type == e.EV_KEY and _should_suppress(event):
                         if event.type == e.EV_KEY:
-                            if event.code in KEYCODES_TO_SUPRESS:
-                                key_name = KEYCODES_TO_SUPRESS[event.code]
+                            if event.code in SUPPRESSED_KEYCODE_TO_KEY:
+                                key_name = SUPPRESSED_KEYCODE_TO_KEY[event.code]
+                                # Always send keys to plover even if not suppressed
+                                # so that it can handle global shortcuts
+                                # like PLOVER_TOGGLE (PHRO*L)
                                 if event.value == KeyEvent.key_down:
                                     self._queue.put((key_name, True))
                                 elif event.value == KeyEvent.key_up:

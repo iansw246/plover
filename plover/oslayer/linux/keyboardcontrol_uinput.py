@@ -607,14 +607,15 @@ class KeyboardCapture(Capture):
         return not is_uinput and keyboard_keys_present
 
     def _grab_devices(self):
+        """Grab all devices, waiting for each device to stop having keys pressed.
+        If a device is grabbed when keys are being pressed, the key will
+        appear to be always pressed down until the device is ungrabbed and the
+        key is pressed again.
+        See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
+        There is likely a race condition here between checking active keys and
+        actually grabbing the device, but it appears to work fine.
+        """
         for device in self._devices:
-            # Wait until no keys are pressed before grabbing to prevent keys getting stuck.
-            # If a device is grabbed when keys are being pressed, the key will
-            # appear to be always pressed down until the device is ungrabbed and the
-            # key is pressed again.
-            # See https://stackoverflow.com/questions/41995349/why-does-ioctlfd-eviocgrab-1-cause-key-spam-sometimes
-            # There is likely a race condition here between checking active keys and
-            # actually grabbing the device, but it appears to work fine.
             if len(device.active_keys()) > 0:
                 for _ in device.read_loop():
                     if len(device.active_keys()) == 0:
@@ -685,14 +686,16 @@ class KeyboardCapture(Capture):
                     assert isinstance(key.fileobj, InputDevice)
                     device: InputDevice = key.fileobj
                     for event in device.read():
-                        if event.type == e.EV_KEY and _should_suppress(event):
+                        # if event.type == e.EV_KEY and _should_suppress(event):
+                        if event.type == e.EV_KEY:
                             key_name = KEYCODES_TO_SUPRESS[event.code]
                             if event.value == KeyEvent.key_down:
                                 self.key_down(key_name)
                             elif event.value == KeyEvent.key_up:
                                 self.key_up(key_name)
-                            # Don't passthrough. Skip rest of this loop
-                            continue
+                            if _should_suppress(event):
+                                # Don't passthrough. Skip rest of this loop
+                                continue
 
                         # Passthrough event
                         self._ui.write_event(event)

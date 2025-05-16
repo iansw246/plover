@@ -633,22 +633,31 @@ class KeyboardCapture(Capture):
             device.grab()
 
     def start(self):
-        self._grab_devices()
-        self._device_thread_read_pipe, self._device_thread_write_pipe = os.pipe()
-        self._selector.register(self._device_thread_read_pipe, selectors.EVENT_READ)
-        for device in self._devices:
-            self._selector.register(device, selectors.EVENT_READ)
+        try:
+            self._grab_devices()
+            self._device_thread_read_pipe, self._device_thread_write_pipe = os.pipe()
+            self._selector.register(self._device_thread_read_pipe, selectors.EVENT_READ)
+            for device in self._devices:
+                self._selector.register(device, selectors.EVENT_READ)
 
-        self._device_thread = threading.Thread(target=self._run)
-        self._device_thread.start()
-        self._steno_thread = threading.Thread(target=self._handle_events)
-        self._steno_thread.start()
+            self._device_thread = threading.Thread(target=self._run)
+            self._device_thread.start()
+            self._steno_thread = threading.Thread(target=self._handle_events)
+            self._steno_thread.start()
 
-        self._running = True
+            self._running = True
+        except Exception:
+            for device in self._devices:
+                try:
+                    device.ungrab()
+                except:
+                    pass
+            raise
 
     def cancel(self):
         # Write some arbitrary data to the pipe to signal the _run thread to stop
-        os.write(self._device_thread_write_pipe, b"a")
+        if self._device_thread_write_pipe is not None:
+            os.write(self._device_thread_write_pipe, b"a")
         if self._device_thread is not None:
             self._device_thread.join()
             self._device_thread = None

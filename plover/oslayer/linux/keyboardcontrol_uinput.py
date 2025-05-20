@@ -484,7 +484,7 @@ LAYOUTS = {
 }
 
 # Ignore keys with modifiers
-SUPPRESSED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
+HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
@@ -568,7 +568,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
 class KeyboardCapture(Capture):
     _selector: selectors.DefaultSelector
-    _queue: queue.Queue[tuple[int, bool] | None]
+    _queue: queue.Queue[tuple[str, bool] | None]
     _device_thread: threading.Thread | None
     # Pipe to signal _monitor_devices thread to stop
     # The thread will select() on this pipe to know when to stop
@@ -704,7 +704,7 @@ class KeyboardCapture(Capture):
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
                 return False
-            key = SUPPRESSED_KEYCODE_TO_KEY.get(event.code, None)
+            key = HANDLED_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
                 # Key is unhandled. Don't suppress
                 return False
@@ -733,18 +733,22 @@ class KeyboardCapture(Capture):
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         if event.type == e.EV_KEY:
-                            if event.code in SUPPRESSED_KEYCODE_TO_KEY:
-                                key_name = SUPPRESSED_KEYCODE_TO_KEY[event.code]
-                                # Always send keys to plover even if not suppressed
-                                # so that it can handle global shortcuts
-                                # like PLOVER_TOGGLE (PHRO*L)
-                                if event.value == KeyEvent.key_down:
-                                    self._queue.put((key_name, True))
-                                elif event.value == KeyEvent.key_up:
-                                    self._queue.put((key_name, False))
-                                if _should_suppress(event):
-                                    # Don't passthrough. Skip rest of this loop
+                            if event.code in HANDLED_KEYCODE_TO_KEY:
+                                key_name = HANDLED_KEYCODE_TO_KEY[event.code]
+                                suppressed = _should_suppress(event)
+                                if not self._running or suppressed:
+                                    # Always send keys to plover even if not suppressed
+                                    # so that it can handle global shortcuts
+                                    # like PLOVER_TOGGLE (PHRO*L)
+                                    if event.value == KeyEvent.key_down:
+                                        self._queue.put((key_name, True))
+                                    elif event.value == KeyEvent.key_up:
+                                        self._queue.put((key_name, False))
+                                if self._running and suppressed:
+                                    # Skip rest of loop to prevent event from
+                                    # being passed through
                                     continue
+
 
                         # Passthrough event
                         self._ui.write_event(event)

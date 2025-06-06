@@ -6,6 +6,7 @@ import selectors
 import string
 import queue
 
+from psutil import process_iter
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
 
 from plover.output.keyboard import GenericKeyboardEmulation
@@ -495,6 +496,10 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
 
+        # Check that ibus or fcitx5 is running
+        if not any(p.name() in ["ibus-daemon", "fcitx5"] for p in process_iter()):
+            log.warning("It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly.")
+
     def _update_layout(self, layout):
         if not layout in LAYOUTS:
             log.warning(f"Layout {layout} not supported. Falling back to qwerty.")
@@ -525,7 +530,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         self.delay()
         self.send_string(hex)
         self.delay()
-        self._send_char("\n")
+        self._send_char(" ")
 
     def _send_char(self, char):
         (base, mods) = self._get_key(char)
@@ -617,6 +622,7 @@ class KeyboardCapture(Capture):
 
     def _grab_devices(self):
         """Grab all devices, waiting for each device to stop having keys pressed.
+
         If a device is grabbed when keys are being pressed, the key will
         appear to be always pressed down until the device is ungrabbed and the
         key is pressed again.
@@ -631,6 +637,14 @@ class KeyboardCapture(Capture):
                         # No keys are pressed. Grab the device
                         break
             device.grab()
+
+    def _ungrab_devices(self):
+        """Ungrab all devices. Handles all exceptions when ungrabbing."""
+        for device in self._devices:
+            try:
+                device.ungrab()
+            except:
+                log.debug("failed to ungrab device", exc_info=True)
 
     def start(self):
         try:
@@ -647,11 +661,7 @@ class KeyboardCapture(Capture):
 
             self._running = True
         except Exception:
-            for device in self._devices:
-                try:
-                    device.ungrab()
-                except:
-                    pass
+            self._ungrab_devices()
             raise
 
     def cancel(self):
@@ -752,13 +762,10 @@ class KeyboardCapture(Capture):
 
                         # Passthrough event
                         self._ui.write_event(event)
+        except:
+            log.error("keyboard capture error", exc_info=True)
         finally:
             # Always ungrab devices to prevent exceptions in the _run loop
             # from causing grabbed input devices to be blocked
-            for device in self._devices:
-                try:
-                    device.ungrab()
-                    self._selector.unregister(device)
-                except:
-                    log.error("Failed to ungrab device", exc_info=True)
+            self._ungrab_devices()
             self._ui.close()

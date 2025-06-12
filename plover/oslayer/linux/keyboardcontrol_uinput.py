@@ -746,7 +746,7 @@ class KeyboardCapture(Capture):
                             if event.code in HANDLED_KEYCODE_TO_KEY:
                                 key_name = HANDLED_KEYCODE_TO_KEY[event.code]
                                 suppressed = _should_suppress(event)
-                                if not self._running or suppressed:
+                                if not self._suppressed_keys or suppressed:
                                     # Always send keys to plover even if not suppressed
                                     # so that it can handle global shortcuts
                                     # like PLOVER_TOGGLE (PHRO*L)
@@ -754,7 +754,7 @@ class KeyboardCapture(Capture):
                                         self._queue.put((key_name, True))
                                     elif event.value == KeyEvent.key_up:
                                         self._queue.put((key_name, False))
-                                if self._running and suppressed:
+                                if self._suppressed_keys and suppressed:
                                     # Skip rest of loop to prevent event from
                                     # being passed through
                                     continue

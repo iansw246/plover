@@ -498,7 +498,9 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
         # Check that ibus or fcitx5 is running
         if not any(p.name() in ["ibus-daemon", "fcitx5"] for p in process_iter()):
-            log.warning("It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly.")
+            log.warning(
+                "It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly."
+            )
 
     def _update_layout(self, layout):
         if not layout in LAYOUTS:

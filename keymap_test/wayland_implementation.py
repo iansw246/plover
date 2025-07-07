@@ -27,6 +27,10 @@ def recv_exact(socket: socket.socket, length: int):
     return buffer
 
 def recv_fds_exact(s: socket.socket, length: int, fd_count: int):
+    """Receive exactly `length` bytes from the given socket and `fd_count` file descriptors.
+    
+    Returns a tuple of (data_bytes, fds)
+    """
     # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
     fds = array.array("i")
     buffer = bytearray(length)
@@ -71,6 +75,11 @@ class WaylandConnection:
         self.wayland_socket.close()
 
     def recv_message(self):
+        """Receive an event from the Wayland server.
+        
+        Returns a tuple of (object_id, length, opcode, event_data_bytes)
+        """
+        # The only event we care about is wl_keyboard::keymap which only has one fd
         MAX_FD_COUNT = 1
         event_header_bytes, fds = recv_fds_exact(self.wayland_socket, WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
         self.fd_queue.extend(fds)
@@ -83,9 +92,17 @@ class WaylandConnection:
         return object_id, length, opcode, event_data_bytes
 
     def send_message(self, object_id: int, opcode: int, data: bytes | bytearray):
+        """Send a request to the Wayland server.
+        
+        `object_id` is the ID of the object to send the request to.
+        `opcode` is the opcode of the request.
+        `data` is the data to send with the request.
+        """
         length = WAYLAND_MESSAGE_HEADER_SIZE_BYTES + len(data)
         # Wayland messages are streams of 32-bit (4 byte) values
         assert length % 4 == 0, "Length of message must be a multiple of 4."
+        # The length field is a 16-bit unsigned integer (the upper 16 bits of the 32-bit value)
+        assert length < 2**16, "Length of message must be less than 2^16."
         length_and_opcode = (length << 16) | opcode
         message = struct.pack("=II", object_id, length_and_opcode)
         self.wayland_socket.sendall(message)
@@ -142,8 +159,8 @@ with WaylandConnection() as connection:
         elif object_id == SEAT_ID and opcode == 0:
             # wl_seat::capabilities
             assert opcode == 0
-
             assert length == WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4, f"Expected enum to be 4 bytes, got {length}"
+
             capabilities = struct.unpack("=I", event_data_bytes[:4])[0]
             print(f"Capabilities: {capabilities}")
             has_keyboard = capabilities & 2

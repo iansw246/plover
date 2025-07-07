@@ -4,6 +4,9 @@ import mmap
 import os
 import socket
 import struct
+import selectors
+import threading
+
 from xkbcommon import xkb
 
 WAYLAND_MESSAGE_HEADER_SIZE_BYTES = 8
@@ -14,40 +17,6 @@ SYNC_ID = 3
 SEAT_ID = 4
 KEYBOARD_ID = 5
 
-def recv_exact(socket: socket.socket, length: int):
-    buffer = bytearray(length)
-    view = memoryview(buffer)
-    while length:
-        n = socket.recv_into(view, length)
-        if n == 0:
-            raise EOFError
-        view = view[n:]
-        length -= n
-    assert(length == 0)
-    return buffer
-
-def recv_fds_exact(s: socket.socket, length: int, fd_count: int):
-    """Receive exactly `length` bytes from the given socket and `fd_count` file descriptors.
-    
-    Returns a tuple of (data_bytes, fds)
-    """
-    # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
-    fds = array.array("i")
-    buffer = bytearray(length)
-    view = memoryview(buffer)
-
-    while length:
-        n, ancdata, flags, addr = s.recvmsg_into([view], socket.CMSG_LEN(fd_count * fds.itemsize))
-        for cmsg_level, cmsg_type, cmsg_data in ancdata:
-            if cmsg_level == socket.SOL_SOCKET and cmsg_type == socket.SCM_RIGHTS:
-                fds.frombytes(cmsg_data[:len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
-        view = view[n:]
-        length -= n
-
-    fds = list(fds)
-
-    return buffer, fds
-
 def round_up(value: int, multiple: int):
     """Round `value` up to the nearest multiple of `multiple`.
     `multiple` must be positive and a power of 2"""
@@ -55,24 +24,37 @@ def round_up(value: int, multiple: int):
     return (value + multiple - 1) & ~(multiple - 1)
 
 class WaylandConnection:
-    wayland_socket: socket.socket
     fd_queue: collections.deque[int]
+    _wayland_socket: socket.socket
+    _shutdown_pipe_read: int
+    _shutdown_pipe_write: int
+    _selector: selectors.BaseSelector
 
     def __init__(self):
         self.fd_queue = collections.deque()
+        self._shutdown_pipe_read, self._shutdown_pipe_write = os.pipe()
+        self._selector = selectors.DefaultSelector()
+
 
     def __enter__(self):
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
         xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
         socket_path = os.path.join(xdg_runtime_dir, wayland_display)
 
-        self.wayland_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.wayland_socket.connect(socket_path)
+        self._wayland_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._wayland_socket.connect(socket_path)
+
+        self._selector.register(self._wayland_socket, selectors.EVENT_READ)
+        self._selector.register(self._shutdown_pipe_read, selectors.EVENT_READ)
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.wayland_socket.close()
+        self._selector.close()
+        self._wayland_socket.shutdown(socket.SHUT_RDWR)
+        self._wayland_socket.close()
+        os.close(self._shutdown_pipe_read)
+        os.close(self._shutdown_pipe_write)
 
     def recv_message(self):
         """Receive an event from the Wayland server.
@@ -81,13 +63,13 @@ class WaylandConnection:
         """
         # The only event we care about is wl_keyboard::keymap which only has one fd
         MAX_FD_COUNT = 1
-        event_header_bytes, fds = recv_fds_exact(self.wayland_socket, WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
+        event_header_bytes, fds = self._recv_fds_exact(WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
         self.fd_queue.extend(fds)
         object_id, length_and_opcode = struct.unpack("=II", event_header_bytes)
         length = length_and_opcode >> 16
         assert length % 4 == 0, "Length of message must be a multiple of 4."
         opcode = length_and_opcode & 0xFFFF
-        event_data_bytes, fds = recv_fds_exact(self.wayland_socket, length - WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
+        event_data_bytes, fds = self._recv_fds_exact(length - WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
         self.fd_queue.extend(fds)
         return object_id, length, opcode, event_data_bytes
 
@@ -105,10 +87,46 @@ class WaylandConnection:
         assert length < 2**16, "Length of message must be less than 2^16."
         length_and_opcode = (length << 16) | opcode
         message = struct.pack("=II", object_id, length_and_opcode)
-        self.wayland_socket.sendall(message)
-        self.wayland_socket.sendall(data)
+        self._wayland_socket.sendall(message)
+        self._wayland_socket.sendall(data)
 
-with WaylandConnection() as connection:
+    def shutdown(self):
+        os.write(self._shutdown_pipe_write, b"\x00")
+
+    def _recv_fds_exact(self, length: int, fd_count: int):
+        """Receive exactly `length` bytes from the Wayland server and `fd_count` file descriptors.
+
+        Raises EOFError if the connection is shut down using `WaylandConnection.shutdown()`.
+        
+        Returns a tuple of (data_bytes, fds)
+        """
+        fds = array.array("i")
+        buffer = bytearray(length)
+        view = memoryview(buffer)
+
+        if length < 0:
+            raise ValueError("Length must be non-negative.")
+        if fd_count < 0:
+            raise ValueError("FD count must be non-negative.")
+
+        while length:
+            for key, _ in self._selector.select():
+                if key.fileobj == self._shutdown_pipe_read:
+                    raise EOFError
+                # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
+                n, ancdata, flags, addr = self._wayland_socket.recvmsg_into([view], socket.CMSG_LEN(fd_count * fds.itemsize))
+                for cmsg_level, cmsg_type, cmsg_data in ancdata:
+                    if cmsg_level == socket.SOL_SOCKET and cmsg_type == socket.SCM_RIGHTS:
+                        fds.frombytes(cmsg_data[:len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
+                view = view[n:]
+                length -= n
+
+        fds = list(fds)
+
+        return buffer, fds
+
+
+def wayland_event_loop(connection: WaylandConnection):
     # wl_display::get_registry
     # display id: DISPLAY_ID
     # opcode: 1
@@ -209,6 +227,16 @@ with WaylandConnection() as connection:
             syms = keymap.key_get_syms_by_level(26, 1, 0)
             if syms:
                 print("Keycode 26 symbols:", *(xkb.keysym_get_name(sym) for sym in syms), sep=" ")
-            break
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
+
+if __name__ == "__main__":
+    with WaylandConnection() as connection:
+        event_loop_thread = threading.Thread(target=wayland_event_loop, args=(connection,))
+        event_loop_thread.start()
+
+        import time
+        time.sleep(2)
+        connection.shutdown()
+        event_loop_thread.join()
+    

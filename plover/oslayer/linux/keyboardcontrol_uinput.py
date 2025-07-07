@@ -681,6 +681,7 @@ class KeyboardCapture(Capture):
         if self._device_thread_write_pipe is not None:
             os.close(self._device_thread_write_pipe)
             self._device_thread_write_pipe = None
+        self._selector.close()
 
         self._running = False
 

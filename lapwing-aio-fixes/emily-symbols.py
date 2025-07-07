@@ -63,8 +63,10 @@ for left_stroke in uniqueStarters:
     for right_stroke, stroke_symbols in symbols[left_stroke].items():
         if isinstance(stroke_symbols, str):
             stroke_symbol = (stroke_symbols,)
-        for symbol in stroke_symbols:
-            reverse_mappings[symbol].append((left_stroke, right_stroke))
+        for symbol, modifier_stroke in zip(stroke_symbols, ("", "E", "U", "EU")):
+            if symbol == "":
+                continue
+            reverse_mappings[symbol].append((left_stroke + modifier_stroke + right_stroke,))
 
 def lookup(chord):
 

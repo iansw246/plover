@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import mmap
 import os
 import threading
 from dataclasses import dataclass
@@ -8,7 +9,9 @@ import queue
 
 from psutil import process_iter
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
+from xkbcommon import xkb
 
+from plover.oslayer.linux.wayland_keymap import WaylandConnection, wayland_event_loop
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo, KEYNAME_TO_CHAR
@@ -484,12 +487,18 @@ LAYOUTS = {
     },
 }
 
+WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
+
 # Ignore keys with modifiers
 HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
 class KeyboardEmulation(GenericKeyboardEmulation):
+    _key_to_keycodeinfo: dict[str, KeyCodeInfo]
+    _wayland_connection: WaylandConnection
+    _wayland_connection_thread: threading.Thread | None
+
     def __init__(self):
         super().__init__()
         # Initialize UInput with all keys available
@@ -501,16 +510,85 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             log.warning(
                 "It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly."
             )
+        self._wayland_connection = WaylandConnection()
+        self._wayland_connection_thread = None
+        # Set initial default layout so _get_key() works before Wayland connection is established
+        self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
+        
 
     def _update_layout(self, layout):
+        if layout == WAYLAND_AUTO_LAYOUT_NAME:
+            self._wayland_connection.connect()
+            self._wayland_connection_thread = threading.Thread(target=wayland_event_loop, args=(self._wayland_connection, self._new_keymap_callback))
+            self._wayland_connection_thread.start()
+            return
+        else:
+            if self._wayland_connection_thread is not None:
+                self._wayland_connection.shutdown()
+                
+            self._wayland_connection_thread = None
+            self._wayland_connection = WaylandConnection()
+
         if not layout in LAYOUTS:
             log.warning(f"Layout {layout} not supported. Falling back to qwerty.")
-        self._KEY_TO_KEYCODEINFO = LAYOUTS.get(layout, LAYOUTS[DEFAULT_LAYOUT])
+        self._key_to_keycodeinfo = LAYOUTS.get(layout, LAYOUTS[DEFAULT_LAYOUT])
+
+    def _new_keymap_callback(self, keymap_fd: int, keymap_size: int):
+        xkb_context = xkb.Context()
+        with mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
+            keymap = xkb_context.keymap_new_from_file(keymap_file)
+
+        # The keymaps have to be "translated" to a US layout keyboard for evdev
+        keymap_us = xkb_context.keymap_new_from_names(layout="us")
+        # Modifier names from xkb, converted to lists of modifiers
+        level_mapping = {
+            0: [],
+            1: [e.KEY_LEFTSHIFT],
+            2: [e.KEY_RIGHTALT],
+            3: [e.KEY_LEFTSHIFT, e.KEY_RIGHTALT],
+        }
+
+        symbols: dict[str, KeyCodeInfo] = {}
+
+        for key in iter(keymap):
+            try:
+                # Levels are different outputs from the same key with modifiers pressed
+                levels = keymap.num_levels_for_key(key, 1)
+                if levels == 0:  # Key has no output
+                    continue
+
+                # === Base key symbol ===
+                base_key_syms = keymap_us.key_get_syms_by_level(key, 1, 0)
+                if len(base_key_syms) == 0:  # There are no symbols for this key
+                    continue
+                base_key = xkb.keysym_to_string(base_key_syms[0])
+                if base_key is None:
+                    continue
+
+                # === Key variations ===
+                if levels < 1:  # There are no variations (Check maybe not needed)
+                    continue
+                for level in range(0, levels + 1):  # Ignoring the first (base) one
+                    level_key_syms = keymap.key_get_syms_by_level(key, 1, level)
+                    if len(level_key_syms) == 0:
+                        continue
+                    level_key = xkb.keysym_to_string(level_key_syms[0])
+                    if level_key is None:
+                        continue
+                    modifiers = level_mapping.get(level, "")
+                    if not level_key in symbols:
+                        symbols[level_key] = KeyCodeInfo(key - 8, modifiers)
+            except xkb.XKBInvalidKeycode:
+                # Iter *should* return only valid, but still returns some invalid...
+                pass
+
+
+        self._key_to_keycodeinfo = symbols
 
     def _get_key(self, key):
         """Helper function to get the keycode and potential modifiers for a key."""
-        if key in self._KEY_TO_KEYCODEINFO:
-            key_map_info = self._KEY_TO_KEYCODEINFO[key]
+        key_map_info = self._key_to_keycodeinfo.get(key, None)
+        if key_map_info is not None:
             return (key_map_info.keycode, key_map_info.modifiers)
         return (None, [])
 

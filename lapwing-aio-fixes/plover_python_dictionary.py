@@ -28,10 +28,10 @@ class PythonDictionary(StenoDictionary):
     def _load(self, filename):
         dictionary_module = import_from_path("python_dictionary", filename)
 
-        longest_key = getattr('LONGEST_KEY', dictionary_module, None)
+        longest_key = getattr(dictionary_module, 'LONGEST_KEY', None)
         if not isinstance(longest_key, int) or longest_key <= 0:
             raise ValueError('missing or invalid `LONGEST_KEY\' constant: %s\n' % longest_key)
-        lookup = getattr('lookup', dictionary_module, None)
+        lookup = getattr(dictionary_module, 'lookup', None)
         if not isinstance(lookup, typing.Callable):
             raise ValueError('missing or invalid `lookup\' function: %s\n' % lookup)
         reverse_lookup = getattr(dictionary_module, 'reverse_lookup', lambda x: set())

@@ -262,7 +262,7 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
         with mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
             keymap = xkb_context.keymap_new_from_file(keymap_file)
 
-        # Following code in this function based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py)
+        # == The following code in this function based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
         # The keymaps have to be "translated" to a US layout keyboard for evdev
         keymap_us = xkb_context.keymap_new_from_names(layout="us")
         # Modifier names from xkb, converted to lists of modifiers
@@ -282,7 +282,6 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
                 if levels == 0:  # Key has no output
                     continue
 
-                # === Base key symbol ===
                 base_key_syms = keymap_us.key_get_syms_by_level(key, 1, 0)
                 if len(base_key_syms) == 0:  # There are no symbols for this key
                     continue
@@ -299,29 +298,34 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
                             level_key = xkb.keysym_to_string(level_key_sym)
                             modifiers = level_mapping.get(level, "")
 
-                            handled = False
-
                             for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
-                                handled = True
                                 if level_key_alias not in symbols:
                                     symbols[level_key_alias] = KeyCodeInfo(key - 8, modifiers)
+
+                            if level_key is not None:
+                                if level_key not in symbols:
+                                    # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
+                                    # unless multiple keys produce the same symbol. Same for other symbol names
+                                    symbols[level_key] = KeyCodeInfo(key - 8, modifiers)
+
                             if level_key_name.startswith("XF86"):
-                                handled = True
                                 plover_key_name = level_key_name[4:].lower()
                                 if plover_key_name not in symbols:
                                     symbols[plover_key_name] = KeyCodeInfo(key - 8, modifiers)
+                            else:
+                                level_key_name_lower = level_key_name.lower()
+                                if level_key_name_lower not in symbols:
+                                    symbols[level_key_name_lower] = KeyCodeInfo(key - 8, modifiers)
 
-                            if level_key is not None:
-                                handled = True
-                                if level_key not in symbols:
-                                    symbols[level_key] = KeyCodeInfo(key - 8, modifiers)
-                            
-                            if not handled:
-                                print(f"Key {level_key_name} not included in Plover layout")
-                            
             except xkb.XKBInvalidKeycode:
                 # Iter *should* return only valid, but still returns some invalid...
                 pass
+
+    # The "Linefeed" (xkb symbol 0xff0a) symbol's key string is "\n".
+    # If Linefeed appears before the enter/return key when iterating over keys in the keymap, "\n" will be mapped to Linefeed rather than enter.
+    # This ensures that "\n" is mapped to the enter/return key
+    if "return" in symbols:
+        symbols["\n"] = symbols["return"]
 
     return symbols
 

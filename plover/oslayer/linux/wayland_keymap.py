@@ -1,5 +1,6 @@
 import array
 import collections
+import contextlib
 import mmap
 import os
 import socket
@@ -9,6 +10,8 @@ import threading
 from typing import Callable
 
 from xkbcommon import xkb
+
+from plover.oslayer.linux.keyboardlayout_uinput import XKB_KEY_NAME_TO_ALIASES, KeyCodeInfo
 
 WAYLAND_MESSAGE_HEADER_SIZE_BYTES = 8
 
@@ -37,7 +40,7 @@ class WaylandConnection:
         self._selector = selectors.DefaultSelector()
 
 
-    def connect(self):
+    def __enter__(self):
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
         xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
         socket_path = os.path.join(xdg_runtime_dir, wayland_display)
@@ -50,7 +53,7 @@ class WaylandConnection:
 
         return self
 
-    def close(self):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         self._selector.close()
         self._wayland_socket.shutdown(socket.SHUT_RDWR)
         self._wayland_socket.close()
@@ -92,12 +95,13 @@ class WaylandConnection:
         self._wayland_socket.sendall(data)
 
     def shutdown(self):
+        """Signal the Wayland connection to close and for the event loop to exit."""
         os.write(self._shutdown_pipe_write, b"\x00")
 
     def _recv_fds_exact(self, length: int, fd_count: int):
         """Receive exactly `length` bytes from the Wayland server and `fd_count` file descriptors.
 
-        Raises EOFError if the connection is shut down using `WaylandConnection.shutdown()`.
+        Raises InterruptedError if the connection is shut down using `WaylandConnection.shutdown()`.
         
         Returns a tuple of (data_bytes, fds)
         """
@@ -114,7 +118,7 @@ class WaylandConnection:
             for key, _ in self._selector.select():
                 if key.fileobj == self._shutdown_pipe_read:
                     self.close()
-                    raise EOFError()
+                    raise InterruptedError()
                 # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
                 n, ancdata, flags, addr = self._wayland_socket.recvmsg_into([view], socket.CMSG_LEN(fd_count * fds.itemsize))
                 for cmsg_level, cmsg_type, cmsg_data in ancdata:
@@ -128,7 +132,11 @@ class WaylandConnection:
         return buffer, fds
 
 
-def wayland_event_loop(connection: WaylandConnection, new_keymap_callback: Callable[[int, int], None]):
+def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
+    """Get the keymap from the Wayland server.
+    
+    Returns a tuple of (keymap_fd, keymap_size) as returned by the Wayland server.
+    """
     # wl_display::get_registry
     # display id: DISPLAY_ID
     # opcode: 1
@@ -221,17 +229,103 @@ def wayland_event_loop(connection: WaylandConnection, new_keymap_callback: Calla
 
             print(f"Keymap size: {keymap_size}")
                 
-            new_keymap_callback(fd, keymap_size)
+            return fd, keymap_size
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
 
-if __name__ == "__main__":
-    with WaylandConnection() as connection:
-        event_loop_thread = threading.Thread(target=wayland_event_loop, args=(connection,))
-        event_loop_thread.start()
+@contextlib.contextmanager
+def fd_context(fd: int):
+    try:
+        yield fd
+    finally:
+        os.close(fd)
 
-        import time
-        time.sleep(2)
-        connection.shutdown()
-        event_loop_thread.join()
+def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
+    with WaylandConnection() as connection:
+        done = False
+        def timeout_thread_function():
+            import time
+            time.sleep(timeout)
+            if not done:
+                connection.shutdown()
+
+        timeout_thread = threading.Thread(target=timeout_thread_function)
+        timeout_thread.start()
+
+        try:
+            keymap_fd, keymap_size = wayland_keymap_event_loop(connection)
+            done = True
+        except InterruptedError:
+            raise TimeoutError("Wayland get keymap timeout")
+    with fd_context(keymap_fd) as keymap_fd:
+        xkb_context = xkb.Context()
+        with mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
+            keymap = xkb_context.keymap_new_from_file(keymap_file)
+
+        # Following code in this function based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py)
+        # The keymaps have to be "translated" to a US layout keyboard for evdev
+        keymap_us = xkb_context.keymap_new_from_names(layout="us")
+        # Modifier names from xkb, converted to lists of modifiers
+        level_mapping = {
+            0: [],
+            1: ["shift_l"],
+            2: ["alt_l"],
+            3: ["shift_l", "alt_l"],
+        }
+
+        symbols: dict[str, KeyCodeInfo] = {}
+
+        for key in iter(keymap):
+            try:
+                # Levels are different outputs from the same key with modifiers pressed
+                levels = keymap.num_levels_for_key(key, 1)
+                if levels == 0:  # Key has no output
+                    continue
+
+                # === Base key symbol ===
+                base_key_syms = keymap_us.key_get_syms_by_level(key, 1, 0)
+                if len(base_key_syms) == 0:  # There are no symbols for this key
+                    continue
+                for sym in base_key_syms:
+                    name = xkb.keysym_get_name(sym)
+                    key_string = xkb.keysym_to_string(sym)
+
+                    for level in range(0, levels + 1):  # Ignoring the first (base) one
+                        level_key_syms = keymap.key_get_syms_by_level(key, 1, level)
+                        if len(level_key_syms) == 0:
+                            continue
+                        for level_key_sym in level_key_syms:
+                            level_key_name = xkb.keysym_get_name(level_key_sym)
+                            level_key = xkb.keysym_to_string(level_key_sym)
+                            modifiers = level_mapping.get(level, "")
+
+                            handled = False
+
+                            for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
+                                handled = True
+                                if level_key_alias not in symbols:
+                                    symbols[level_key_alias] = KeyCodeInfo(key - 8, modifiers)
+                            if level_key_name.startswith("XF86"):
+                                handled = True
+                                plover_key_name = level_key_name[4:].lower()
+                                if plover_key_name not in symbols:
+                                    symbols[plover_key_name] = KeyCodeInfo(key - 8, modifiers)
+
+                            if level_key is not None:
+                                handled = True
+                                if level_key not in symbols:
+                                    symbols[level_key] = KeyCodeInfo(key - 8, modifiers)
+                            
+                            if not handled:
+                                print(f"Key {level_key_name} not included in Plover layout")
+                            
+            except xkb.XKBInvalidKeycode:
+                # Iter *should* return only valid, but still returns some invalid...
+                pass
+
+    return symbols
+
+if __name__ == "__main__":
+    symbols = get_wayland_keymap(5)
+    print(symbols)
     

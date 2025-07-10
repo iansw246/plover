@@ -117,7 +117,6 @@ class WaylandConnection:
         while length:
             for key, _ in self._selector.select():
                 if key.fileobj == self._shutdown_pipe_read:
-                    self.close()
                     raise InterruptedError()
                 # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
                 n, ancdata, flags, addr = self._wayland_socket.recvmsg_into([view], socket.CMSG_LEN(fd_count * fds.itemsize))

@@ -1,10 +1,6 @@
-from collections.abc import Sequence
-import mmap
 import os
 import threading
-from dataclasses import dataclass
 import selectors
-import string
 import queue
 
 from psutil import process_iter
@@ -43,9 +39,8 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 # Verify that no modifier has its own modifiers in the Wayland keymap
                 for key_info in symbols.values():
                     for modifier in key_info.modifiers:
-                        modifier_info = symbols.get(modifier)
-                        if modifier_info is not None and len(modifier_info.modifiers) > 0:
-                            log.warning(f"Modifier {modifier} in retrieved Wayland keymap has modifiers itself ({modifier_info.modifiers}). This may cause unexpected behavior.")
+                        if modifier in MODIFIER_KEY_CODES:
+                            log.warning(f"Modifier {modifier} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior.")
                 self._key_to_keycodeinfo = symbols
                 print("Wayland keymap:", symbols)
             except Exception as e:

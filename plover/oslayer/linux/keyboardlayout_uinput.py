@@ -484,12 +484,15 @@ for layout_name, layout in LAYOUTS.items():
 
 WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 
+# Additional aliases for xkbcommon keysyms
+# Keys beginning with "XF86" are handled as a special case during xkbcommon keymap processing
+# For each xkbcommon keysyms, the lowercase of the symbol name is also added to the keymap by the code
 XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "Return": ["\n"],
     "Control_L": ["ctrl"],
     "Shift_L": ["shift"],
-    "Super_L": ["super"],
-    "Alt_L": ["alt"],
+    "Super_L": ["super", "windows", "command"],
+    "Alt_L": ["alt", "option"],
     "Tab": ["\t"],
     "Next": ["page_down"],
     "Prior": ["page_up"],
@@ -504,7 +507,6 @@ XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "KP_Next": ["kp_3"],
     "KP_Insert": ["kp_0"],
     "KP_Delete": ["kp_dot", "kp_decimal"],
-    # Keys beginning with "XF86" are handled with special code during xkb keymap processing
 }
 
 # Ignore keys with modifiers

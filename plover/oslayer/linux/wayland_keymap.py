@@ -7,7 +7,7 @@ import socket
 import struct
 import selectors
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 from xkbcommon import xkb
 
@@ -233,6 +233,50 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
 
+def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
+    """
+    Returns a list of xkbcommon keycodes for each non-latched or non-locked modifier in order of the modifier's index.
+    If the modifier is latched or locked (e.g. NumLock), the keycode is None.
+
+    If multiple keys produce the same modifier, an arbitrary one is chosen.
+    """
+    num_mods = keymap.num_mods()
+    modifier_keycodes: list[int | None] = [None] * num_mods
+
+    for keycode in keymap:
+        keyboard_state = xkb.KeyboardState(keymap)
+        key_state = keyboard_state.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
+
+        is_key_mod = (key_state & xkb.StateComponent.XKB_STATE_MODS_DEPRESSED) and not ((key_state & xkb.StateComponent.XKB_STATE_MODS_LOCKED) or (key_state & xkb.StateComponent.XKB_STATE_MODS_LATCHED))
+        if not is_key_mod:
+            continue
+
+        num_layouts = keymap.num_layouts_for_key(keycode)
+        for layout in range(0, num_layouts):
+            layout_is_active = keyboard_state.layout_index_is_active(layout, xkb.StateComponent.XKB_STATE_LAYOUT_EFFECTIVE)
+
+            if not layout_is_active:
+                continue
+
+            for mod_index in range(0, num_mods):
+                if modifier_keycodes[mod_index] is not None:
+                    continue
+                is_mod_active = keyboard_state.mod_index_is_active(mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
+                if not is_mod_active:
+                    continue
+
+                keysyms = keymap.key_get_syms_by_level(keycode, layout, 0)
+                if len(keysyms) != 1:
+                    continue
+
+                modifier_name = keymap.mod_get_name(mod_index)
+                print("Modifier name:", modifier_name, "modifier index:", mod_index, "keycode:", keycode)
+
+                modifier_keycodes[mod_index] = keycode
+            break
+
+    return modifier_keycodes
+
 @contextlib.contextmanager
 def fd_context(fd: int):
     try:
@@ -262,64 +306,58 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
         with mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
             keymap = xkb_context.keymap_new_from_file(keymap_file)
 
-        # == The following code in this function based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
-        # The keymaps have to be "translated" to a US layout keyboard for evdev
-        keymap_us = xkb_context.keymap_new_from_names(layout="us")
-        # Modifier names from xkb, converted to lists of modifiers
-        level_mapping = {
-            0: [],
-            1: ["shift_l"],
-            2: ["alt_l"],
-            3: ["shift_l", "alt_l"],
-        }
+    modifier_index_to_keycode = compute_modifier_keycodes(keymap)
 
-        symbols: dict[str, KeyCodeInfo] = {}
+    # == The following code in this function is based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
+    symbols: dict[str, KeyCodeInfo] = {}
 
-        for key in iter(keymap):
-            try:
-                # Levels are different outputs from the same key with modifiers pressed
-                levels = keymap.num_levels_for_key(key, 1)
-                if levels == 0:  # Key has no output
-                    continue
+    for key in iter(keymap):
+        try:
+            # Levels are different outputs from the same key with modifiers pressed
+            levels = keymap.num_levels_for_key(key, 1)
 
-                base_key_syms = keymap_us.key_get_syms_by_level(key, 1, 0)
-                if len(base_key_syms) == 0:  # There are no symbols for this key
-                    continue
-                for sym in base_key_syms:
-                    name = xkb.keysym_get_name(sym)
-                    key_string = xkb.keysym_to_string(sym)
+            for level in range(levels):
+                level_key_syms = keymap.key_get_syms_by_level(key, 1, level)
+                for level_key_sym in level_key_syms:
+                    level_key_name = xkb.keysym_get_name(level_key_sym)
+                    level_key = xkb.keysym_to_string(level_key_sym)
 
-                    for level in range(0, levels + 1):  # Ignoring the first (base) one
-                        level_key_syms = keymap.key_get_syms_by_level(key, 1, level)
-                        if len(level_key_syms) == 0:
-                            continue
-                        for level_key_sym in level_key_syms:
-                            level_key_name = xkb.keysym_get_name(level_key_sym)
-                            level_key = xkb.keysym_to_string(level_key_sym)
-                            modifiers = level_mapping.get(level, "")
+                    modifier_masks = keymap.key_get_mods_for_level(key, 1, level)
+                    key_modifiers: list[int] = []
+                    for mask in modifier_masks:
+                        modifier_index = 0
+                        while mask > 0:
+                            if mask & 1:
+                                modifier_keycode = modifier_index_to_keycode[modifier_index]
+                                if modifier_keycode is not None:
+                                    key_modifiers.append(modifier_keycode - 8)
+                            mask >>= 1
+                            modifier_index += 1
+                        break
+                    print(f"Key {key} level {level} -> {level_key_name} {level_key} mods: {key_modifiers}")
 
-                            for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
-                                if level_key_alias not in symbols:
-                                    symbols[level_key_alias] = KeyCodeInfo(key - 8, modifiers)
+                    for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
+                        if level_key_alias not in symbols:
+                            symbols[level_key_alias] = KeyCodeInfo(key - 8, key_modifiers)
 
-                            if level_key is not None:
-                                if level_key not in symbols:
-                                    # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
-                                    # unless multiple keys produce the same symbol. Same for other symbol names
-                                    symbols[level_key] = KeyCodeInfo(key - 8, modifiers)
+                    if level_key is not None:
+                        if level_key not in symbols:
+                            # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
+                            # unless multiple keys produce the same symbol. Same for other symbol names
+                            symbols[level_key] = KeyCodeInfo(key - 8, key_modifiers)
 
-                            if level_key_name.startswith("XF86"):
-                                plover_key_name = level_key_name[4:].lower()
-                                if plover_key_name not in symbols:
-                                    symbols[plover_key_name] = KeyCodeInfo(key - 8, modifiers)
-                            else:
-                                level_key_name_lower = level_key_name.lower()
-                                if level_key_name_lower not in symbols:
-                                    symbols[level_key_name_lower] = KeyCodeInfo(key - 8, modifiers)
+                    if level_key_name.startswith("XF86"):
+                        plover_key_name = level_key_name[4:].lower()
+                        if plover_key_name not in symbols:
+                            symbols[plover_key_name] = KeyCodeInfo(key - 8, key_modifiers)
+                    else:
+                        level_key_name_lower = level_key_name.lower()
+                        if level_key_name_lower not in symbols:
+                            symbols[level_key_name_lower] = KeyCodeInfo(key - 8, key_modifiers)
 
-            except xkb.XKBInvalidKeycode:
-                # Iter *should* return only valid, but still returns some invalid...
-                pass
+        except xkb.XKBInvalidKeycode:
+            # Iter *should* return only valid, but still returns some invalid...
+            pass
 
     # The "Linefeed" (xkb symbol 0xff0a) symbol's key string is "\n".
     # If Linefeed appears before the enter/return key when iterating over keys in the keymap, "\n" will be mapped to Linefeed rather than enter.

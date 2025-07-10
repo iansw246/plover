@@ -8,7 +8,7 @@ from evdev import ecodes as e
 class KeyCodeInfo:
     keycode: int
     # Other keycodes that must be pressed with the keycode to send the key
-    modifiers: Sequence[str] = ()
+    modifiers: Sequence[int] = ()
 
 # Shared keys between all layouts
 BASE_LAYOUT: dict[str, KeyCodeInfo] = {

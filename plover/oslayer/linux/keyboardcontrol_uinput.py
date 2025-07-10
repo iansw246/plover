@@ -67,12 +67,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         """Helper function to get the keycode and potential modifiers for a key."""
         key_map_info = self._key_to_keycodeinfo.get(key, None)
         if key_map_info is not None:
-            print(f"Key {key} -> {key_map_info}")
-            modifier_keycodes: list[int] = [
-                self._key_to_keycodeinfo[modifier].keycode
-                for modifier in key_map_info.modifiers
-            ]
-            return (key_map_info.keycode, modifier_keycodes)
+            return (key_map_info.keycode, key_map_info.modifiers)
         return (None, [])
 
     def _press_key(self, key, state):
@@ -97,6 +92,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def _send_char(self, char):
         (base, mods) = self._get_key(char)
+        print("Key", char, "->", base, mods)
 
         # Key can be sent with a key combination
         if base is not None:

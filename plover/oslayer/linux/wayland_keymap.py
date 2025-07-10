@@ -346,14 +346,15 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
                             # unless multiple keys produce the same symbol. Same for other symbol names
                             symbols[level_key] = KeyCodeInfo(key - 8, key_modifiers)
 
+                    # Only add unprintable key if it's a base key (no modifiers)
+                    if key_modifiers:
+                        continue
                     if level_key_name.startswith("XF86"):
                         plover_key_name = level_key_name[4:].lower()
-                        if plover_key_name not in symbols:
-                            symbols[plover_key_name] = KeyCodeInfo(key - 8, key_modifiers)
                     else:
-                        level_key_name_lower = level_key_name.lower()
-                        if level_key_name_lower not in symbols:
-                            symbols[level_key_name_lower] = KeyCodeInfo(key - 8, key_modifiers)
+                        plover_key_name = level_key_name.lower()
+                    if plover_key_name not in symbols:
+                        symbols[plover_key_name] = KeyCodeInfo(key - 8, ())
 
         except xkb.XKBInvalidKeycode:
             # Iter *should* return only valid, but still returns some invalid...

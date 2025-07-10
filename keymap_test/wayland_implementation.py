@@ -67,7 +67,7 @@ class WaylandConnection:
         self.fd_queue.extend(fds)
         object_id, length_and_opcode = struct.unpack("=II", event_header_bytes)
         length = length_and_opcode >> 16
-        assert length % 4 == 0, "Length of message must be a multiple of 4."
+        assert length % 4 == 0, "Length of message must be a multiple of 4 bytes."
         opcode = length_and_opcode & 0xFFFF
         event_data_bytes, fds = self._recv_fds_exact(length - WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
         self.fd_queue.extend(fds)

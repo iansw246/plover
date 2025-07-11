@@ -478,8 +478,8 @@ LAYOUTS = {
 # Verify that no modifier has its own modifiers
 for layout_name, layout in LAYOUTS.items():
     for key, key_info in layout.items():
-        for modifier in key_info.modifiers:
-            assert modifier not in MODIFIER_KEY_CODES, f"Modifier {modifier} in layout {layout_name} should not itself have modifiers"
+        if key_info.keycode in MODIFIER_KEY_CODES:
+            assert len(key_info.modifiers) == 0, f"Modifier {key_info.keycode} in layout {layout_name} should not itself have modifiers"
 
 WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 

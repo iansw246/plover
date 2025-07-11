@@ -21,6 +21,8 @@ SYNC_ID = 3
 SEAT_ID = 4
 KEYBOARD_ID = 5
 
+XKB_TO_EV_KEYCODE_OFFSET = 8
+
 def round_up(value: int, multiple: int):
     """Round `value` up to the nearest multiple of `multiple`.
     `multiple` must be positive and a power of 2"""
@@ -243,7 +245,7 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
     modifier_keycodes: list[int | None] = [None] * num_mods
 
     for keycode in keymap:
-        if keycode - 8 not in VALID_EV_KEYCODES:
+        if keycode - XKB_TO_EV_KEYCODE_OFFSET not in VALID_EV_KEYCODES:
             continue
         keyboard_state = xkb.KeyboardState(keymap)
         key_state = keyboard_state.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
@@ -313,7 +315,7 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
     symbols: dict[str, KeyCodeInfo] = {}
 
     for key in iter(keymap):
-        if key - 8 not in VALID_EV_KEYCODES:
+        if key - XKB_TO_EV_KEYCODE_OFFSET not in VALID_EV_KEYCODES:
             continue
         try:
             # Levels are different outputs from the same key with modifiers pressed
@@ -335,7 +337,7 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
                                 modifier_keycode = modifier_index_to_keycode[modifier_index]
                                 if modifier_keycode is None:
                                     break
-                                key_modifiers.append(modifier_keycode - 8)
+                                key_modifiers.append(modifier_keycode - XKB_TO_EV_KEYCODE_OFFSET)
                             mask >>= 1
                             modifier_index += 1
                         else:
@@ -345,23 +347,23 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
 
                     for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
                         if level_key_alias not in symbols:
-                            symbols[level_key_alias] = KeyCodeInfo(key - 8, key_modifiers)
+                            symbols[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
                     if level_key is not None:
                         if level_key not in symbols:
                             # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
                             # unless multiple keys produce the same symbol. Same for other level_key_name
-                            symbols[level_key] = KeyCodeInfo(key - 8, key_modifiers)
+                            symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
                     if level_key_name.startswith("XF86"):
                         plover_key_name = level_key_name[4:].lower()
                         # Add alias with "xf86" for XF86... keys to be consistent with X11 plover
                         if plover_key_name not in symbols:
-                            symbols[plover_key_name] = KeyCodeInfo(key - 8, key_modifiers)
+                            symbols[plover_key_name] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
                     level_key_name_lower = level_key_name.lower()
                     if level_key_name_lower not in symbols:
-                        symbols[level_key_name_lower] = KeyCodeInfo(key - 8, key_modifiers)
+                        symbols[level_key_name_lower] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
         except xkb.XKBInvalidKeycode:
             # Iter *should* return only valid, but still returns some invalid...

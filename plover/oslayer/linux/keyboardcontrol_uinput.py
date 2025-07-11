@@ -7,8 +7,7 @@ from psutil import process_iter
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
 from xkbcommon import xkb
 
-from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, MODIFIER_KEY_CODES, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo
-from plover.oslayer.linux.wayland_keymap import WaylandConnection, get_wayland_keymap
+from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, MODIFIER_KEY_CODES, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, get_wayland_keymap
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo

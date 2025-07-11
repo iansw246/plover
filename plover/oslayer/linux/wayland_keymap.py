@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from xkbcommon import xkb
 
-from plover.oslayer.linux.keyboardlayout_uinput import XKB_KEY_NAME_TO_ALIASES, KeyCodeInfo
+from plover.oslayer.linux.keyboardlayout_uinput import VALID_EV_KEYCODES, XKB_KEY_NAME_TO_ALIASES, KeyCodeInfo
 
 WAYLAND_MESSAGE_HEADER_SIZE_BYTES = 8
 
@@ -243,6 +243,8 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
     modifier_keycodes: list[int | None] = [None] * num_mods
 
     for keycode in keymap:
+        if keycode - 8 not in VALID_EV_KEYCODES:
+            continue
         keyboard_state = xkb.KeyboardState(keymap)
         key_state = keyboard_state.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
 
@@ -257,7 +259,7 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
             if not layout_is_active:
                 continue
 
-            for mod_index in range(0, num_mods):
+            for mod_index in range(num_mods):
                 if modifier_keycodes[mod_index] is not None:
                     continue
                 is_mod_active = keyboard_state.mod_index_is_active(mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
@@ -311,6 +313,8 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
     symbols: dict[str, KeyCodeInfo] = {}
 
     for key in iter(keymap):
+        if key - 8 not in VALID_EV_KEYCODES:
+            continue
         try:
             # Levels are different outputs from the same key with modifiers pressed
             levels = keymap.num_levels_for_key(key, 1)
@@ -322,16 +326,20 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
                     level_key = xkb.keysym_to_string(level_key_sym)
 
                     modifier_masks = keymap.key_get_mods_for_level(key, 1, level)
+                    print("Key", key, "level", level, "->", level_key_name, level_key, modifier_masks)
                     key_modifiers: list[int] = []
                     for mask in modifier_masks:
                         modifier_index = 0
                         while mask > 0:
                             if mask & 1:
                                 modifier_keycode = modifier_index_to_keycode[modifier_index]
-                                if modifier_keycode is not None:
-                                    key_modifiers.append(modifier_keycode - 8)
+                                if modifier_keycode is None:
+                                    break
+                                key_modifiers.append(modifier_keycode - 8)
                             mask >>= 1
                             modifier_index += 1
+                        else:
+                            continue
                         break
                     print(f"Key {key} level {level} -> {level_key_name} {level_key} mods: {key_modifiers}")
 

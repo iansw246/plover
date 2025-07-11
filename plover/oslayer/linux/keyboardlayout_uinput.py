@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Sequence
 import string
 
-from evdev import ecodes as e
+from evdev import ecodes as e, util
 
 @dataclass
 class KeyCodeInfo:
@@ -480,6 +480,8 @@ for layout_name, layout in LAYOUTS.items():
     for key, key_info in layout.items():
         if key_info.keycode in MODIFIER_KEY_CODES:
             assert len(key_info.modifiers) == 0, f"Modifier {key_info.keycode} in layout {layout_name} should not itself have modifiers"
+
+VALID_EV_KEYCODES: set[int] = set(util.find_ecodes_by_regex(r"KEY_.*")[1])
 
 WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 

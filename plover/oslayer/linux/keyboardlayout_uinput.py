@@ -141,6 +141,10 @@ BASE_LAYOUT: dict[str, KeyCodeInfo] = {
     "kbdbrightnessdown": KeyCodeInfo(e.KEY_KBDILLUMDOWN),
 }
 
+# TODO: Find way to get this from Wayland keymap
+# Code for retrieving the key map and parsing it is already implemented.
+# Just need a way to avoid double connections from the Capture and Emulation classes.
+# Perhaps a persistent background thread with a connection to Wayland that updates global state?
 MODIFIER_KEY_CODES: set[int] = {
     e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT,
     e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL,

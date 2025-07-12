@@ -358,7 +358,7 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
             keymap = xkb_context.keymap_new_from_file(keymap_file)
     return generate_plover_keymap_from_xkb_keymap(keymap)
 
-def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyCodeInfo]:
+def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, printable_only: bool = False) -> dict[str, KeyCodeInfo]:
     modifier_index_to_keycode = compute_modifier_keycodes(keymap)
 
     # == The following code in this function is based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
@@ -372,7 +372,7 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyC
             levels = keymap.num_levels_for_key(key, 1)
 
             for level in range(levels):
-                level_key_syms = keymap.key_get_syms_by_level(key, 1, level)
+                level_key_syms = keymap.key_get_syms_by_level(key, 0, level)
                 for level_key_sym in level_key_syms:
                     level_key_name = xkb.keysym_get_name(level_key_sym)
                     level_key = xkb.keysym_to_string(level_key_sym)
@@ -393,15 +393,19 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyC
                             continue
                         break
 
-                    for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
-                        if level_key_alias not in symbols:
-                            symbols[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
-
                     if level_key is not None:
                         if level_key not in symbols:
                             # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
                             # unless multiple keys produce the same symbol. Same for other level_key_name
                             symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+                    
+                    if printable_only:
+                        # The rest of the code handles the "name" which is only relevant for non symbols keys
+                        continue
+
+                    for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
+                        if level_key_alias not in symbols:
+                            symbols[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
                     if level_key_name.startswith("XF86"):
                         plover_key_name = level_key_name[4:].lower()
@@ -437,13 +441,14 @@ LAYOUTS = {
     "colemak-dh": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us", variant="colemak_dh")),
 }
 
-del context
 
 # Ignore keys with modifiers
-HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
+HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us"), printable_only=True).items() if len(v.modifiers) == 0}
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
+del context
+
 if __name__ == "__main__":
     symbols = get_wayland_keymap(5)
-    print(symbols)
+    print(symbols)can

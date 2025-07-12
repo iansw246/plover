@@ -298,22 +298,21 @@ class KeyboardCapture(Capture):
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         if event.type == e.EV_KEY:
-                            if event.code in HANDLED_KEYCODE_TO_KEY:
-                                key_name = HANDLED_KEYCODE_TO_KEY[event.code]
-                                suppressed = _should_suppress(event)
-                                if not self._suppressed_keys or suppressed:
-                                    # Always send keys to plover even if not suppressed
+                            suppressed = _should_suppress(event)
+                            if not self._suppressed_keys or suppressed:
+                                if event.code in HANDLED_KEYCODE_TO_KEY:
+                                    key_name = HANDLED_KEYCODE_TO_KEY[event.code]
+                                    # Always send keys to Plover when no keys suppressed (Plover disabled)
                                     # so that it can handle global shortcuts
                                     # like PLOVER_TOGGLE (PHRO*L)
                                     if event.value == KeyEvent.key_down:
                                         self._queue.put((key_name, True))
                                     elif event.value == KeyEvent.key_up:
                                         self._queue.put((key_name, False))
-                                if self._suppressed_keys and suppressed:
-                                    # Skip rest of loop to prevent event from
-                                    # being passed through
-                                    continue
-
+                            if self._suppressed_keys and suppressed:
+                                # Skip rest of loop to prevent event from
+                                # being passed through
+                                continue
 
                         # Passthrough event
                         self._ui.write_event(event)

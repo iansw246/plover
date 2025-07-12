@@ -51,7 +51,7 @@ WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 # For each xkbcommon keysyms, the lowercase of the symbol name is also added to the keymap by the code
 XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "Return": ["\n"],
-    "Control_L": ["ctrl"],
+    "Control_L": ["ctrl", "ctrl_l"],
     "Shift_L": ["shift"],
     "Super_L": ["super", "windows", "command"],
     "Alt_L": ["alt", "option"],
@@ -447,8 +447,10 @@ HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in generate_plover_keymap_fr
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
+print(HANDLED_KEYCODE_TO_KEY)
+
 del context
 
 if __name__ == "__main__":
     symbols = get_wayland_keymap(5)
-    print(symbols)can
+    print(symbols)

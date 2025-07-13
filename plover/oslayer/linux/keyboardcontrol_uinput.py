@@ -261,29 +261,36 @@ class KeyboardCapture(Capture):
         keys_pressed_with_modifier: set[int] = set()
         down_modifier_keys: set[int] = set()
 
-        def _should_suppress(event: InputEvent) -> bool:
+        def _parse_key_event(event: InputEvent) -> tuple[str | None, bool]:
+            """
+            Returns a tuple of (key_to_send_to_plover, passthrough)
+            """
+            if not self._suppressed_keys:
+                # No keys are suppressed. Passthrough all keys.
+                # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
+                return HANDLED_KEYCODE_TO_KEY.get(event.code, None), True
             if event.code in MODIFIER_KEY_CODES:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
-                return False
+                return None, False
             key = HANDLED_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
-                # Key is unhandled. Don't suppress
-                return False
+                # Key is unhandled. Passthrough
+                return None, True
             if event.value == KeyEvent.key_down and down_modifier_keys:
                 keys_pressed_with_modifier.add(event.code)
-                return False
+                return None, True
             if event.value == KeyEvent.key_up and event.code in keys_pressed_with_modifier:
                 # Must pass through key up event if key was pressed with modifier
                 # or else it will stay pressed down and start repeating.
                 # Must release even if modifier key was released first
                 keys_pressed_with_modifier.discard(event.code)
-                return False
-            suppressed = key in self._suppressed_keys
-            return suppressed
+                return None, True
+            passthrough = key not in self._suppressed_keys
+            return key, passthrough
 
         try:
             while True:
@@ -298,18 +305,14 @@ class KeyboardCapture(Capture):
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         if event.type == e.EV_KEY:
-                            suppressed = _should_suppress(event)
-                            if not self._suppressed_keys or suppressed:
-                                if event.code in HANDLED_KEYCODE_TO_KEY:
-                                    key_name = HANDLED_KEYCODE_TO_KEY[event.code]
-                                    # Always send keys to Plover when no keys suppressed (Plover disabled)
-                                    # so that it can handle global shortcuts
-                                    # like PLOVER_TOGGLE (PHRO*L)
-                                    if event.value == KeyEvent.key_down:
-                                        self._queue.put((key_name, True))
-                                    elif event.value == KeyEvent.key_up:
-                                        self._queue.put((key_name, False))
-                            if self._suppressed_keys and suppressed:
+                            key_to_send_to_plover, passthrough = _parse_key_event(event)
+                            if key_to_send_to_plover is not None:
+                                # Always send keys to Plover when no keys suppressed
+                                if event.value == KeyEvent.key_down:
+                                    self._queue.put((key_to_send_to_plover, True))
+                                elif event.value == KeyEvent.key_up:
+                                    self._queue.put((key_to_send_to_plover, False))
+                            if passthrough:
                                 # Skip rest of loop to prevent event from
                                 # being passed through
                                 continue

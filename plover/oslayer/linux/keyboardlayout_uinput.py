@@ -10,7 +10,6 @@ import socket
 import struct
 import selectors
 import threading
-from typing import Any, Callable
 
 from xkbcommon import xkb
 from evdev import ecodes as e, util
@@ -29,6 +28,8 @@ SYNC_ID = 3
 SEAT_ID = 4
 KEYBOARD_ID = 5
 
+# Offset between xkbcommon keycodes and Linux EV keycodes
+# Subtract this value from xkbcommon keycodes to get Linux EV keycodes
 XKB_TO_EV_KEYCODE_OFFSET = 8
 
 # TODO: Find way to get this from Wayland keymap
@@ -286,6 +287,7 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
     """
     Returns a list of xkbcommon keycodes for each non-latched or non-locked modifier in order of the modifier's index.
     If the modifier is latched or locked (e.g. NumLock), the keycode is None.
+    `result[i]` is the keycode for the modifier with index `i`.
 
     If multiple keys produce the same modifier, an arbitrary one is chosen.
     """
@@ -319,9 +321,6 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
                 keysyms = keymap.key_get_syms_by_level(keycode, layout, 0)
                 if len(keysyms) != 1:
                     continue
-
-                modifier_name = keymap.mod_get_name(mod_index)
-                print("Modifier name:", modifier_name, "modifier index:", mod_index, "keycode:", keycode)
 
                 modifier_keycodes[mod_index] = keycode
             break
@@ -364,20 +363,21 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, printable_only: b
     # == The following code in this function is based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
     symbols: dict[str, KeyCodeInfo] = {}
 
+    layout_index = 0
     for key in iter(keymap):
         if key - XKB_TO_EV_KEYCODE_OFFSET not in VALID_EV_KEYCODES:
             continue
         try:
             # Levels are different outputs from the same key with modifiers pressed
-            levels = keymap.num_levels_for_key(key, 1)
+            levels = keymap.num_levels_for_key(key, layout_index)
 
             for level in range(levels):
-                level_key_syms = keymap.key_get_syms_by_level(key, 0, level)
+                level_key_syms = keymap.key_get_syms_by_level(key, layout_index, level)
                 for level_key_sym in level_key_syms:
                     level_key_name = xkb.keysym_get_name(level_key_sym)
                     level_key = xkb.keysym_to_string(level_key_sym)
 
-                    modifier_masks = keymap.key_get_mods_for_level(key, 1, level)
+                    modifier_masks = keymap.key_get_mods_for_level(key, layout_index, level)
                     key_modifiers: list[int] = []
                     for mask in modifier_masks:
                         modifier_index = 0
@@ -390,15 +390,13 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, printable_only: b
                             mask >>= 1
                             modifier_index += 1
                         else:
-                            continue
-                        break
+                            break
 
-                    if level_key is not None:
-                        if level_key not in symbols:
-                            # Because we iterate levels in order, this only adds the lowest level and thus simplest set of modifiers for each symbol
-                            # unless multiple keys produce the same symbol. Same for other level_key_name
-                            symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
-                    
+                    if level_key is not None and level_key not in symbols:
+                        # Because we iterate levels in order, only the lowest level and thus simplest set of modifiers for each symbol is added,
+                        # unless multiple keys produce the same symbol. Same for level_key_name and aliases below
+                        symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+
                     if printable_only:
                         # The rest of the code handles the "name" which is only relevant for non symbols keys
                         continue
@@ -446,8 +444,6 @@ LAYOUTS = {
 HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us"), printable_only=True).items() if len(v.modifiers) == 0}
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
-
-print(HANDLED_KEYCODE_TO_KEY)
 
 del context
 

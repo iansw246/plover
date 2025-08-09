@@ -357,7 +357,7 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
             keymap = xkb_context.keymap_new_from_file(keymap_file)
     return generate_plover_keymap_from_xkb_keymap(keymap)
 
-def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, printable_only: bool = False) -> dict[str, KeyCodeInfo]:
+def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyCodeInfo]:
     modifier_index_to_keycode = compute_modifier_keycodes(keymap)
 
     # == The following code in this function is based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
@@ -397,10 +397,6 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, printable_only: b
                         # unless multiple keys produce the same symbol. Same for level_key_name and aliases below
                         symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
-                    if printable_only:
-                        # The rest of the code handles the "name" which is only relevant for non symbols keys
-                        continue
-
                     for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
                         if level_key_alias not in symbols:
                             symbols[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
@@ -439,9 +435,85 @@ LAYOUTS = {
     "colemak-dh": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us", variant="colemak_dh")),
 }
 
+# Linux EV keycode to Plover key name, used with suppressed keys
+# Many key names are different from xkbcommon, so it's easier to define manually
+HANDLED_KEYCODE_TO_KEY = {
+    e.KEY_F1: "F1",
+    e.KEY_F2: "F2",
+    e.KEY_F3: "F3",
+    e.KEY_F4: "F4",
+    e.KEY_F5: "F5",
+    e.KEY_F6: "F6",
+    e.KEY_F7: "F7",
+    e.KEY_F8: "F8",
+    e.KEY_F9: "F9",
+    e.KEY_F10: "F10",
+    e.KEY_F11: "F11",
+    e.KEY_F12: "F12",
+    e.KEY_GRAVE: "`",
+    e.KEY_0: "0",
+    e.KEY_1: "1",
+    e.KEY_2: "2",
+    e.KEY_3: "3",
+    e.KEY_4: "4",
+    e.KEY_5: "5",
+    e.KEY_6: "6",
+    e.KEY_7: "7",
+    e.KEY_8: "8",
+    e.KEY_9: "9",
+    e.KEY_MINUS: "-",
+    e.KEY_EQUAL: "=",
+    e.KEY_Q: "q",
+    e.KEY_W: "w",
+    e.KEY_E: "e",
+    e.KEY_R: "r",
+    e.KEY_T: "t",
+    e.KEY_Y: "y",
+    e.KEY_U: "u",
+    e.KEY_I: "i",
+    e.KEY_O: "o",
+    e.KEY_P: "p",
+    e.KEY_LEFTBRACE: "[",
+    e.KEY_RIGHTBRACE: "]",
+    e.KEY_BACKSLASH: "\\",
+    e.KEY_A: "a",
+    e.KEY_S: "s",
+    e.KEY_D: "d",
+    e.KEY_F: "f",
+    e.KEY_G: "g",
+    e.KEY_H: "h",
+    e.KEY_J: "j",
+    e.KEY_K: "k",
+    e.KEY_L: "l",
+    e.KEY_SEMICOLON: ";",
+    e.KEY_APOSTROPHE: "'",
+    e.KEY_Z: "z",
+    e.KEY_X: "x",
+    e.KEY_C: "c",
+    e.KEY_V: "v",
+    e.KEY_B: "b",
+    e.KEY_N: "n",
+    e.KEY_M: "m",
+    e.KEY_COMMA: ",",
+    e.KEY_DOT: ".",
+    e.KEY_SLASH: "/",
+    e.KEY_SPACE: "space",
+    e.KEY_BACKSPACE: "BackSpace",
+    e.KEY_DELETE: "Delete",
+    e.KEY_DOWN: "Down",
+    e.KEY_END: "End",
+    e.KEY_ESC: "Escape",
+    e.KEY_HOME: "Home",
+    e.KEY_LEFT: "Left",
+    e.KEY_PAGEDOWN: "Page_Down",
+    e.KEY_PAGEUP: "Page_Up",
+    e.KEY_ENTER: "Return",
+    e.KEY_RIGHT: "Right",
+    e.KEY_TAB: "Tab",
+    e.KEY_UP: "Up",
+}
 
-# Ignore keys with modifiers
-HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us"), printable_only=True).items() if len(v.modifiers) == 0}
+print("Handled keys", HANDLED_KEYCODE_TO_KEY)
 # Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 

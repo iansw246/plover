@@ -6,7 +6,6 @@ if __name__ == "__main__":
     for device in devices:
         print(device)
 
-    devices = InputDevice("/dev/input/event6")
+    devices = InputDevice("/dev/input/event16")
     for event in devices.read_loop():
         print(categorize(event))
-        

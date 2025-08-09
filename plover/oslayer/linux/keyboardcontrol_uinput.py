@@ -135,7 +135,6 @@ class KeyboardCapture(Capture):
     # and check if it should stop.
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
-    _steno_thread: threading.Thread | None
 
     def __init__(self):
         super().__init__()
@@ -148,11 +147,10 @@ class KeyboardCapture(Capture):
         self._device_thread = None
         self._device_thread_read_pipe = None
         self._device_thread_write_pipe = None
-        self._steno_thread = None
 
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
-        self._suppressed_keys = []
+        self._suppressed_keys = set()
         # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
 
     def _get_devices(self):
@@ -210,8 +208,6 @@ class KeyboardCapture(Capture):
 
             self._device_thread = threading.Thread(target=self._run)
             self._device_thread.start()
-            self._steno_thread = threading.Thread(target=self._handle_events)
-            self._steno_thread.start()
 
             self._running = True
         except Exception:
@@ -243,19 +239,8 @@ class KeyboardCapture(Capture):
         are passed through to a UInput device and emulated, while keys in this list get sent to plover.
         It does add a little bit of delay, but that is not noticeable.
         """
-        self._suppressed_keys = suppressed_keys
-
-    def _handle_events(self):
-        """Thread to handle process nonsuppressed keyboard events."""
-        while True:
-            event = self._queue.get()
-            if event is None:
-                break
-            key_name, pressed = event
-            if pressed:
-                self.key_down(key_name)
-            else:
-                self.key_up(key_name)
+        self._suppressed_keys = set(suppressed_keys)
+        print("Suppressed keys", suppressed_keys)
 
     def _run(self):
         keys_pressed_with_modifier: set[int] = set()
@@ -263,12 +248,12 @@ class KeyboardCapture(Capture):
 
         def _parse_key_event(event: InputEvent) -> tuple[str | None, bool]:
             """
-            Returns a tuple of (key_to_send_to_plover, passthrough)
+            Returns a tuple of (key_to_send_to_plover, suppress)
             """
             if not self._suppressed_keys:
-                # No keys are suppressed. Passthrough all keys.
+                # No keys are suppressed
                 # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
-                return HANDLED_KEYCODE_TO_KEY.get(event.code, None), True
+                return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
             if event.code in MODIFIER_KEY_CODES:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
@@ -279,18 +264,18 @@ class KeyboardCapture(Capture):
             key = HANDLED_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
                 # Key is unhandled. Passthrough
-                return None, True
+                return None, False
             if event.value == KeyEvent.key_down and down_modifier_keys:
                 keys_pressed_with_modifier.add(event.code)
-                return None, True
+                return None, False
             if event.value == KeyEvent.key_up and event.code in keys_pressed_with_modifier:
                 # Must pass through key up event if key was pressed with modifier
                 # or else it will stay pressed down and start repeating.
                 # Must release even if modifier key was released first
                 keys_pressed_with_modifier.discard(event.code)
-                return None, True
-            passthrough = key not in self._suppressed_keys
-            return key, passthrough
+                return None, False
+            suppress = key in self._suppressed_keys
+            return key, suppress
 
         try:
             while True:
@@ -305,14 +290,14 @@ class KeyboardCapture(Capture):
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         if event.type == e.EV_KEY:
-                            key_to_send_to_plover, passthrough = _parse_key_event(event)
+                            key_to_send_to_plover, suppress = _parse_key_event(event)
                             if key_to_send_to_plover is not None:
                                 # Always send keys to Plover when no keys suppressed
                                 if event.value == KeyEvent.key_down:
-                                    self._queue.put((key_to_send_to_plover, True))
+                                    self.key_down(key_to_send_to_plover)
                                 elif event.value == KeyEvent.key_up:
-                                    self._queue.put((key_to_send_to_plover, False))
-                            if passthrough:
+                                    self.key_up(key_to_send_to_plover)
+                            if suppress:
                                 # Skip rest of loop to prevent event from
                                 # being passed through
                                 continue

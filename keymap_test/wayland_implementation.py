@@ -224,9 +224,10 @@ def wayland_event_loop(connection: WaylandConnection):
             with mmap.mmap(fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
                 keymap = xkb_context.keymap_new_from_file(keymap_file)
                 
-            syms = keymap.key_get_syms_by_level(26, 1, 0)
-            if syms:
-                print("Keycode 26 symbols:", *(xkb.keysym_get_name(sym) for sym in syms), sep=" ")
+            num_layouts = keymap.num_layouts()
+            
+            for layout in range(num_layouts):
+                print(f"Layout {layout}: {keymap.layout_get_name(layout)}")
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
 
@@ -235,8 +236,8 @@ if __name__ == "__main__":
         event_loop_thread = threading.Thread(target=wayland_event_loop, args=(connection,))
         event_loop_thread.start()
 
-        import time
-        time.sleep(2)
-        connection.shutdown()
+        # import time
+        # time.sleep(2)
+        # connection.shutdown()
         event_loop_thread.join()
     

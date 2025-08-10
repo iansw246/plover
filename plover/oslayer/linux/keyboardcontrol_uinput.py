@@ -137,6 +137,7 @@ class KeyboardCapture(Capture):
     _device_thread_write_pipe: int | None
 
     def __init__(self):
+        print("init")
         super().__init__()
         # This is based on the example from the python-evdev documentation: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-selectors
         self._devices = self._get_devices()
@@ -225,10 +226,8 @@ class KeyboardCapture(Capture):
         if self._device_thread_read_pipe is not None:
             self._selector.unregister(self._device_thread_read_pipe)
             os.close(self._device_thread_read_pipe)
-            self._device_thread_read_pipe = None
         if self._device_thread_write_pipe is not None:
             os.close(self._device_thread_write_pipe)
-            self._device_thread_write_pipe = None
         self._selector.close()
 
         self._running = False
@@ -281,10 +280,7 @@ class KeyboardCapture(Capture):
             while True:
                 for key, events in self._selector.select():
                     if key.fd == self._device_thread_read_pipe:
-                        # Clear the pipe
-                        os.read(key.fd, 999)
-                        # Signal other thread to stop
-                        self._queue.put(None)
+                        # Stop this thread
                         return
                     assert isinstance(key.fileobj, InputDevice)
                     device: InputDevice = key.fileobj

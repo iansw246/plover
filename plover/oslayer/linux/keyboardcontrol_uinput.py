@@ -1,3 +1,12 @@
+from evdev import (
+    UInput,
+    ecodes as e,
+    util,
+    InputDevice,
+    list_devices,
+    InputEvent,
+    KeyEvent,
+)
 import os
 import threading
 import selectors

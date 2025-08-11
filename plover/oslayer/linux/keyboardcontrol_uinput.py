@@ -1,495 +1,30 @@
-from collections.abc import Sequence
+from evdev import (
+    UInput,
+    ecodes as e,
+    util,
+    InputDevice,
+    list_devices,
+    InputEvent,
+    KeyEvent,
+)
 import os
 import threading
-from dataclasses import dataclass
 import selectors
-import string
 import queue
 
 from psutil import process_iter
 from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
+from xkbcommon import xkb
 
+from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, MODIFIER_KEY_CODES, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, get_wayland_keymap
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
-from plover.key_combo import parse_key_combo, KEYNAME_TO_CHAR
+from plover.key_combo import parse_key_combo
 from plover import log
 
-@dataclass
-class KeyCodeInfo:
-    keycode: int
-    # Other keycodes that must be pressed with the keycode to send the key
-    modifiers: Sequence[int] = ()
-
-# Shared keys between all layouts
-BASE_LAYOUT: dict[str, KeyCodeInfo] = {
-    # Modifiers
-    "alt_l": KeyCodeInfo(e.KEY_LEFTALT),
-    "alt_r": KeyCodeInfo(e.KEY_RIGHTALT),
-    "alt": KeyCodeInfo(e.KEY_LEFTALT),
-    "ctrl_l": KeyCodeInfo(e.KEY_LEFTCTRL),
-    "ctrl_r": KeyCodeInfo(e.KEY_RIGHTCTRL),
-    "ctrl": KeyCodeInfo(e.KEY_LEFTCTRL),
-    "control_l": KeyCodeInfo(e.KEY_LEFTCTRL),
-    "control_r": KeyCodeInfo(e.KEY_RIGHTCTRL),
-    "control": KeyCodeInfo(e.KEY_LEFTCTRL),
-    "shift_l": KeyCodeInfo(e.KEY_LEFTSHIFT),
-    "shift_r": KeyCodeInfo(e.KEY_RIGHTSHIFT),
-    "shift": KeyCodeInfo(e.KEY_LEFTSHIFT),
-    "super_l": KeyCodeInfo(e.KEY_LEFTMETA),
-    "super_r": KeyCodeInfo(e.KEY_RIGHTMETA),
-    "super": KeyCodeInfo(e.KEY_LEFTMETA),
-    # Number row
-    "`": KeyCodeInfo(e.KEY_GRAVE),
-    "~": KeyCodeInfo(e.KEY_GRAVE, [e.KEY_LEFTSHIFT]),
-    "1": KeyCodeInfo(e.KEY_1),
-    "!": KeyCodeInfo(e.KEY_1, [e.KEY_LEFTSHIFT]),
-    "2": KeyCodeInfo(e.KEY_2),
-    "@": KeyCodeInfo(e.KEY_2, [e.KEY_LEFTSHIFT]),
-    "3": KeyCodeInfo(e.KEY_3),
-    "#": KeyCodeInfo(e.KEY_3, [e.KEY_LEFTSHIFT]),
-    "4": KeyCodeInfo(e.KEY_4),
-    "$": KeyCodeInfo(e.KEY_4, [e.KEY_LEFTSHIFT]),
-    "5": KeyCodeInfo(e.KEY_5),
-    "%": KeyCodeInfo(e.KEY_5, [e.KEY_LEFTSHIFT]),
-    "6": KeyCodeInfo(e.KEY_6),
-    "^": KeyCodeInfo(e.KEY_6, [e.KEY_LEFTSHIFT]),
-    "7": KeyCodeInfo(e.KEY_7),
-    "&": KeyCodeInfo(e.KEY_7, [e.KEY_LEFTSHIFT]),
-    "8": KeyCodeInfo(e.KEY_8),
-    "*": KeyCodeInfo(e.KEY_8, [e.KEY_LEFTSHIFT]),
-    "9": KeyCodeInfo(e.KEY_9),
-    "(": KeyCodeInfo(e.KEY_9, [e.KEY_LEFTSHIFT]),
-    "0": KeyCodeInfo(e.KEY_0),
-    ")": KeyCodeInfo(e.KEY_0, [e.KEY_LEFTSHIFT]),
-    "-": KeyCodeInfo(e.KEY_MINUS),
-    "_": KeyCodeInfo(e.KEY_MINUS, [e.KEY_LEFTSHIFT]),
-    "=": KeyCodeInfo(e.KEY_EQUAL),
-    "+": KeyCodeInfo(e.KEY_EQUAL, [e.KEY_LEFTSHIFT]),
-    "\b": KeyCodeInfo(e.KEY_BACKSPACE),
-    # Symbols
-    " ": KeyCodeInfo(e.KEY_SPACE),
-    "\n": KeyCodeInfo(e.KEY_ENTER),
-    # https://github.com/openstenoproject/plover/blob/9b5a357f1fb57cb0a9a8596ae12cd1e84fcff6c4/plover/oslayer/osx/keyboardcontrol.py#L75
-    # https://gist.github.com/jfortin42/68a1fcbf7738a1819eb4b2eef298f4f8
-    "return": KeyCodeInfo(e.KEY_ENTER),
-    "tab": KeyCodeInfo(e.KEY_TAB),
-    "backspace": KeyCodeInfo(e.KEY_BACKSPACE),
-    "delete": KeyCodeInfo(e.KEY_DELETE),
-    "escape": KeyCodeInfo(e.KEY_ESC),
-    "clear": KeyCodeInfo(e.KEY_CLEAR),
-    # Navigation
-    "up": KeyCodeInfo(e.KEY_UP),
-    "down": KeyCodeInfo(e.KEY_DOWN),
-    "left": KeyCodeInfo(e.KEY_LEFT),
-    "right": KeyCodeInfo(e.KEY_RIGHT),
-    "page_up": KeyCodeInfo(e.KEY_PAGEUP),
-    "page_down": KeyCodeInfo(e.KEY_PAGEDOWN),
-    "home": KeyCodeInfo(e.KEY_HOME),
-    "insert": KeyCodeInfo(e.KEY_INSERT),
-    "end": KeyCodeInfo(e.KEY_END),
-    "space": KeyCodeInfo(e.KEY_SPACE),
-    "print": KeyCodeInfo(e.KEY_PRINT),
-    # Function keys
-    "fn": KeyCodeInfo(e.KEY_FN),
-    "f1": KeyCodeInfo(e.KEY_F1),
-    "f2": KeyCodeInfo(e.KEY_F2),
-    "f3": KeyCodeInfo(e.KEY_F3),
-    "f4": KeyCodeInfo(e.KEY_F4),
-    "f5": KeyCodeInfo(e.KEY_F5),
-    "f6": KeyCodeInfo(e.KEY_F6),
-    "f7": KeyCodeInfo(e.KEY_F7),
-    "f8": KeyCodeInfo(e.KEY_F8),
-    "f9": KeyCodeInfo(e.KEY_F9),
-    "f10": KeyCodeInfo(e.KEY_F10),
-    "f11": KeyCodeInfo(e.KEY_F11),
-    "f12": KeyCodeInfo(e.KEY_F12),
-    "f13": KeyCodeInfo(e.KEY_F13),
-    "f14": KeyCodeInfo(e.KEY_F14),
-    "f15": KeyCodeInfo(e.KEY_F15),
-    "f16": KeyCodeInfo(e.KEY_F16),
-    "f17": KeyCodeInfo(e.KEY_F17),
-    "f18": KeyCodeInfo(e.KEY_F18),
-    "f19": KeyCodeInfo(e.KEY_F19),
-    "f20": KeyCodeInfo(e.KEY_F20),
-    "f21": KeyCodeInfo(e.KEY_F21),
-    "f22": KeyCodeInfo(e.KEY_F22),
-    "f23": KeyCodeInfo(e.KEY_F23),
-    "f24": KeyCodeInfo(e.KEY_F24),
-    # Numpad
-    "kp_1": KeyCodeInfo(e.KEY_KP1),
-    "kp_2": KeyCodeInfo(e.KEY_KP2),
-    "kp_3": KeyCodeInfo(e.KEY_KP3),
-    "kp_4": KeyCodeInfo(e.KEY_KP4),
-    "kp_5": KeyCodeInfo(e.KEY_KP5),
-    "kp_6": KeyCodeInfo(e.KEY_KP6),
-    "kp_7": KeyCodeInfo(e.KEY_KP7),
-    "kp_8": KeyCodeInfo(e.KEY_KP8),
-    "kp_9": KeyCodeInfo(e.KEY_KP9),
-    "kp_0": KeyCodeInfo(e.KEY_KP0),
-    "kp_add": KeyCodeInfo(e.KEY_KPPLUS),
-    "kp_decimal": KeyCodeInfo(e.KEY_KPDOT),
-    "kp_delete": KeyCodeInfo(e.KEY_DELETE),  # There is no KPDELETE
-    "kp_divide": KeyCodeInfo(e.KEY_KPSLASH),
-    "kp_enter": KeyCodeInfo(e.KEY_KPENTER),
-    "kp_equal": KeyCodeInfo(e.KEY_KPEQUAL),
-    "kp_multiply": KeyCodeInfo(e.KEY_KPASTERISK),
-    "kp_subtract": KeyCodeInfo(e.KEY_KPMINUS),
-    # Media keys
-    "audioraisevolume": KeyCodeInfo(e.KEY_VOLUMEUP),
-    "audiolowervolume": KeyCodeInfo(e.KEY_VOLUMEDOWN),
-    "monbrightnessup": KeyCodeInfo(e.KEY_BRIGHTNESSUP),
-    "monbrightnessdown": KeyCodeInfo(e.KEY_BRIGHTNESSDOWN),
-    "audiomute": KeyCodeInfo(e.KEY_MUTE),
-    "num_lock": KeyCodeInfo(e.KEY_NUMLOCK),
-    "eject": KeyCodeInfo(e.KEY_EJECTCD),
-    "audiopause": KeyCodeInfo(e.KEY_PAUSE),
-    "audionext": KeyCodeInfo(e.KEY_NEXT),
-    "audioplay": KeyCodeInfo(e.KEY_PLAY),
-    "audiorewind": KeyCodeInfo(e.KEY_REWIND),
-    "kbdbrightnessup": KeyCodeInfo(e.KEY_KBDILLUMUP),
-    "kbdbrightnessdown": KeyCodeInfo(e.KEY_KBDILLUMDOWN),
-}
-
-MODIFIER_KEY_CODES: set[int] = {
-    e.KEY_LEFTSHIFT, e.KEY_RIGHTSHIFT,
-    e.KEY_LEFTCTRL, e.KEY_RIGHTCTRL,
-    e.KEY_LEFTALT, e.KEY_RIGHTALT,
-    e.KEY_LEFTMETA, e.KEY_RIGHTMETA,
-}
-
-DEFAULT_LAYOUT = "qwerty"
-LAYOUTS = {
-    # Only specify keys that differ from qwerty
-    "qwerty": {
-        **BASE_LAYOUT,
-        # First row
-        "q": KeyCodeInfo(e.KEY_Q),
-        "Q": KeyCodeInfo(e.KEY_Q, [e.KEY_LEFTSHIFT]),
-        "w": KeyCodeInfo(e.KEY_W),
-        "W": KeyCodeInfo(e.KEY_W, [e.KEY_LEFTSHIFT]),
-        "e": KeyCodeInfo(e.KEY_E),
-        "E": KeyCodeInfo(e.KEY_E, [e.KEY_LEFTSHIFT]),
-        "r": KeyCodeInfo(e.KEY_R),
-        "R": KeyCodeInfo(e.KEY_R, [e.KEY_LEFTSHIFT]),
-        "t": KeyCodeInfo(e.KEY_T),
-        "T": KeyCodeInfo(e.KEY_T, [e.KEY_LEFTSHIFT]),
-        "y": KeyCodeInfo(e.KEY_Y),
-        "Y": KeyCodeInfo(e.KEY_Y, [e.KEY_LEFTSHIFT]),
-        "u": KeyCodeInfo(e.KEY_U),
-        "U": KeyCodeInfo(e.KEY_U, [e.KEY_LEFTSHIFT]),
-        "i": KeyCodeInfo(e.KEY_I),
-        "I": KeyCodeInfo(e.KEY_I, [e.KEY_LEFTSHIFT]),
-        "o": KeyCodeInfo(e.KEY_O),
-        "O": KeyCodeInfo(e.KEY_O, [e.KEY_LEFTSHIFT]),
-        "p": KeyCodeInfo(e.KEY_P),
-        "P": KeyCodeInfo(e.KEY_P, [e.KEY_LEFTSHIFT]),
-        "[": KeyCodeInfo(e.KEY_LEFTBRACE),
-        "{": KeyCodeInfo(e.KEY_LEFTBRACE, [e.KEY_LEFTSHIFT]),
-        "]": KeyCodeInfo(e.KEY_RIGHTBRACE),
-        "}": KeyCodeInfo(e.KEY_RIGHTBRACE, [e.KEY_LEFTSHIFT]),
-        "\\": KeyCodeInfo(e.KEY_BACKSLASH),
-        "|": KeyCodeInfo(e.KEY_BACKSLASH, [e.KEY_LEFTSHIFT]),
-        # Second row
-        "a": KeyCodeInfo(e.KEY_A),
-        "A": KeyCodeInfo(e.KEY_A, [e.KEY_LEFTSHIFT]),
-        "s": KeyCodeInfo(e.KEY_S),
-        "S": KeyCodeInfo(e.KEY_S, [e.KEY_LEFTSHIFT]),
-        "d": KeyCodeInfo(e.KEY_D),
-        "D": KeyCodeInfo(e.KEY_D, [e.KEY_LEFTSHIFT]),
-        "f": KeyCodeInfo(e.KEY_F),
-        "F": KeyCodeInfo(e.KEY_F, [e.KEY_LEFTSHIFT]),
-        "g": KeyCodeInfo(e.KEY_G),
-        "G": KeyCodeInfo(e.KEY_G, [e.KEY_LEFTSHIFT]),
-        "h": KeyCodeInfo(e.KEY_H),
-        "H": KeyCodeInfo(e.KEY_H, [e.KEY_LEFTSHIFT]),
-        "j": KeyCodeInfo(e.KEY_J),
-        "J": KeyCodeInfo(e.KEY_J, [e.KEY_LEFTSHIFT]),
-        "k": KeyCodeInfo(e.KEY_K),
-        "K": KeyCodeInfo(e.KEY_K, [e.KEY_LEFTSHIFT]),
-        "l": KeyCodeInfo(e.KEY_L),
-        "L": KeyCodeInfo(e.KEY_L, [e.KEY_LEFTSHIFT]),
-        ";": KeyCodeInfo(e.KEY_SEMICOLON),
-        ":": KeyCodeInfo(e.KEY_SEMICOLON, [e.KEY_LEFTSHIFT]),
-        "'": KeyCodeInfo(e.KEY_APOSTROPHE),
-        "\"": KeyCodeInfo(e.KEY_APOSTROPHE, [e.KEY_LEFTSHIFT]),
-        # Third row
-        "z": KeyCodeInfo(e.KEY_Z),
-        "Z": KeyCodeInfo(e.KEY_Z, [e.KEY_LEFTSHIFT]),
-        "x": KeyCodeInfo(e.KEY_X),
-        "X": KeyCodeInfo(e.KEY_X, [e.KEY_LEFTSHIFT]),
-        "c": KeyCodeInfo(e.KEY_C),
-        "C": KeyCodeInfo(e.KEY_C, [e.KEY_LEFTSHIFT]),
-        "v": KeyCodeInfo(e.KEY_V),
-        "V": KeyCodeInfo(e.KEY_V, [e.KEY_LEFTSHIFT]),
-        "b": KeyCodeInfo(e.KEY_B),
-        "B": KeyCodeInfo(e.KEY_B, [e.KEY_LEFTSHIFT]),
-        "n": KeyCodeInfo(e.KEY_N),
-        "N": KeyCodeInfo(e.KEY_N, [e.KEY_LEFTSHIFT]),
-        "m": KeyCodeInfo(e.KEY_M),
-        "M": KeyCodeInfo(e.KEY_M, [e.KEY_LEFTSHIFT]),
-        ",": KeyCodeInfo(e.KEY_COMMA),
-        "<": KeyCodeInfo(e.KEY_COMMA, [e.KEY_LEFTSHIFT]),
-        ".": KeyCodeInfo(e.KEY_DOT),
-        ">": KeyCodeInfo(e.KEY_DOT, [e.KEY_LEFTSHIFT]),
-        "/": KeyCodeInfo(e.KEY_SLASH),
-        "?": KeyCodeInfo(e.KEY_SLASH, [e.KEY_LEFTSHIFT]),
-    },
-    "qwertz": {
-        **BASE_LAYOUT,
-        # Number row
-        "°": KeyCodeInfo(e.KEY_GRAVE, [e.KEY_LEFTSHIFT]),
-        "1": KeyCodeInfo(e.KEY_1),
-        "!": KeyCodeInfo(e.KEY_1, [e.KEY_LEFTSHIFT]),
-        "2": KeyCodeInfo(e.KEY_2),
-        "\"": KeyCodeInfo(e.KEY_2, [e.KEY_LEFTSHIFT]),
-        "3": KeyCodeInfo(e.KEY_3),
-        "§": KeyCodeInfo(e.KEY_3, [e.KEY_LEFTSHIFT]),
-        "4": KeyCodeInfo(e.KEY_4),
-        "$": KeyCodeInfo(e.KEY_4, [e.KEY_LEFTSHIFT]),
-        "5": KeyCodeInfo(e.KEY_5),
-        "%": KeyCodeInfo(e.KEY_5, [e.KEY_LEFTSHIFT]),
-        "6": KeyCodeInfo(e.KEY_6),
-        "&": KeyCodeInfo(e.KEY_6, [e.KEY_LEFTSHIFT]),
-        "7": KeyCodeInfo(e.KEY_7),
-        "/": KeyCodeInfo(e.KEY_7, [e.KEY_LEFTSHIFT]),
-        "8": KeyCodeInfo(e.KEY_8),
-        "(": KeyCodeInfo(e.KEY_8, [e.KEY_LEFTSHIFT]),
-        "9": KeyCodeInfo(e.KEY_9),
-        ")": KeyCodeInfo(e.KEY_9, [e.KEY_LEFTSHIFT]),
-        "0": KeyCodeInfo(e.KEY_0),
-        "=": KeyCodeInfo(e.KEY_0, [e.KEY_LEFTSHIFT]),
-        "ß": KeyCodeInfo(e.KEY_MINUS),
-        "?": KeyCodeInfo(e.KEY_MINUS, [e.KEY_LEFTSHIFT]),
-        "`": KeyCodeInfo(e.KEY_EQUAL, [e.KEY_LEFTSHIFT]),
-        "\b": KeyCodeInfo(e.KEY_BACKSPACE),
-        # Top row
-        "q": KeyCodeInfo(e.KEY_Q),
-        "Q": KeyCodeInfo(e.KEY_Q, [e.KEY_LEFTSHIFT]),
-        "w": KeyCodeInfo(e.KEY_W),
-        "W": KeyCodeInfo(e.KEY_W, [e.KEY_LEFTSHIFT]),
-        "e": KeyCodeInfo(e.KEY_E),
-        "E": KeyCodeInfo(e.KEY_E, [e.KEY_LEFTSHIFT]),
-        "r": KeyCodeInfo(e.KEY_R),
-        "R": KeyCodeInfo(e.KEY_R, [e.KEY_LEFTSHIFT]),
-        "t": KeyCodeInfo(e.KEY_T),
-        "T": KeyCodeInfo(e.KEY_T, [e.KEY_LEFTSHIFT]),
-        "z": KeyCodeInfo(e.KEY_Y),
-        "Z": KeyCodeInfo(e.KEY_Y, [e.KEY_LEFTSHIFT]),
-        "u": KeyCodeInfo(e.KEY_U),
-        "U": KeyCodeInfo(e.KEY_U, [e.KEY_LEFTSHIFT]),
-        "i": KeyCodeInfo(e.KEY_I),
-        "I": KeyCodeInfo(e.KEY_I, [e.KEY_LEFTSHIFT]),
-        "o": KeyCodeInfo(e.KEY_O),
-        "O": KeyCodeInfo(e.KEY_O, [e.KEY_LEFTSHIFT]),
-        "p": KeyCodeInfo(e.KEY_P),
-        "P": KeyCodeInfo(e.KEY_P, [e.KEY_LEFTSHIFT]),
-        "ü": KeyCodeInfo(e.KEY_LEFTBRACE),
-        "Ü": KeyCodeInfo(e.KEY_LEFTBRACE, [e.KEY_LEFTSHIFT]),
-        "+": KeyCodeInfo(e.KEY_RIGHTBRACE),
-        "*": KeyCodeInfo(e.KEY_RIGHTBRACE, [e.KEY_LEFTSHIFT]),
-        "#": KeyCodeInfo(e.KEY_BACKSLASH),
-        "'": KeyCodeInfo(e.KEY_BACKSLASH, [e.KEY_LEFTSHIFT]),
-        # Middle row
-        "a": KeyCodeInfo(e.KEY_A),
-        "A": KeyCodeInfo(e.KEY_A, [e.KEY_LEFTSHIFT]),
-        "s": KeyCodeInfo(e.KEY_S),
-        "S": KeyCodeInfo(e.KEY_S, [e.KEY_LEFTSHIFT]),
-        "d": KeyCodeInfo(e.KEY_D),
-        "D": KeyCodeInfo(e.KEY_D, [e.KEY_LEFTSHIFT]),
-        "f": KeyCodeInfo(e.KEY_F),
-        "F": KeyCodeInfo(e.KEY_F, [e.KEY_LEFTSHIFT]),
-        "g": KeyCodeInfo(e.KEY_G),
-        "G": KeyCodeInfo(e.KEY_G, [e.KEY_LEFTSHIFT]),
-        "h": KeyCodeInfo(e.KEY_H),
-        "H": KeyCodeInfo(e.KEY_H, [e.KEY_LEFTSHIFT]),
-        "j": KeyCodeInfo(e.KEY_J),
-        "J": KeyCodeInfo(e.KEY_J, [e.KEY_LEFTSHIFT]),
-        "k": KeyCodeInfo(e.KEY_K),
-        "K": KeyCodeInfo(e.KEY_K, [e.KEY_LEFTSHIFT]),
-        "l": KeyCodeInfo(e.KEY_L),
-        "L": KeyCodeInfo(e.KEY_L, [e.KEY_LEFTSHIFT]),
-        "ö": KeyCodeInfo(e.KEY_SEMICOLON),
-        "Ö": KeyCodeInfo(e.KEY_SEMICOLON, [e.KEY_LEFTSHIFT]),
-        "ä": KeyCodeInfo(e.KEY_APOSTROPHE),
-        "Ä": KeyCodeInfo(e.KEY_APOSTROPHE),
-        # Bottom row
-        "y": KeyCodeInfo(e.KEY_Z),
-        "Y": KeyCodeInfo(e.KEY_Z, [e.KEY_LEFTSHIFT]),
-        "x": KeyCodeInfo(e.KEY_X),
-        "X": KeyCodeInfo(e.KEY_X, [e.KEY_LEFTSHIFT]),
-        "c": KeyCodeInfo(e.KEY_C),
-        "C": KeyCodeInfo(e.KEY_C, [e.KEY_LEFTSHIFT]),
-        "v": KeyCodeInfo(e.KEY_V),
-        "V": KeyCodeInfo(e.KEY_V, [e.KEY_LEFTSHIFT]),
-        "b": KeyCodeInfo(e.KEY_B),
-        "B": KeyCodeInfo(e.KEY_B, [e.KEY_LEFTSHIFT]),
-        "n": KeyCodeInfo(e.KEY_N),
-        "N": KeyCodeInfo(e.KEY_N, [e.KEY_LEFTSHIFT]),
-        "m": KeyCodeInfo(e.KEY_M),
-        "M": KeyCodeInfo(e.KEY_M, [e.KEY_LEFTSHIFT]),
-        ",": KeyCodeInfo(e.KEY_COMMA),
-        "<": KeyCodeInfo(e.KEY_COMMA, [e.KEY_LEFTSHIFT]),
-        ".": KeyCodeInfo(e.KEY_DOT),
-        ">": KeyCodeInfo(e.KEY_DOT, [e.KEY_LEFTSHIFT]),
-        "-": KeyCodeInfo(e.KEY_SLASH),
-        "_": KeyCodeInfo(e.KEY_SLASH, [e.KEY_LEFTSHIFT]),
-    },
-    "colemak": {
-        **BASE_LAYOUT,
-        # Top row
-        "q": KeyCodeInfo(e.KEY_Q),
-        "Q": KeyCodeInfo(e.KEY_Q, [e.KEY_LEFTSHIFT]),
-        "w": KeyCodeInfo(e.KEY_W),
-        "W": KeyCodeInfo(e.KEY_W, [e.KEY_LEFTSHIFT]),
-        "f": KeyCodeInfo(e.KEY_E),
-        "F": KeyCodeInfo(e.KEY_E, [e.KEY_LEFTSHIFT]),
-        "p": KeyCodeInfo(e.KEY_R),
-        "P": KeyCodeInfo(e.KEY_R, [e.KEY_LEFTSHIFT]),
-        "g": KeyCodeInfo(e.KEY_T),
-        "G": KeyCodeInfo(e.KEY_T, [e.KEY_LEFTSHIFT]),
-        "j": KeyCodeInfo(e.KEY_Y),
-        "J": KeyCodeInfo(e.KEY_Y, [e.KEY_LEFTSHIFT]),
-        "l": KeyCodeInfo(e.KEY_U),
-        "L": KeyCodeInfo(e.KEY_U, [e.KEY_LEFTSHIFT]),
-        "u": KeyCodeInfo(e.KEY_I),
-        "U": KeyCodeInfo(e.KEY_I, [e.KEY_LEFTSHIFT]),
-        "y": KeyCodeInfo(e.KEY_O),
-        "Y": KeyCodeInfo(e.KEY_O, [e.KEY_LEFTSHIFT]),
-        ";": KeyCodeInfo(e.KEY_O),
-        ":": KeyCodeInfo(e.KEY_O, [e.KEY_LEFTSHIFT]),
-        "[": KeyCodeInfo(e.KEY_LEFTBRACE),
-        "{": KeyCodeInfo(e.KEY_LEFTBRACE, [e.KEY_LEFTSHIFT]),
-        "]": KeyCodeInfo(e.KEY_RIGHTBRACE),
-        "}": KeyCodeInfo(e.KEY_RIGHTBRACE, [e.KEY_LEFTSHIFT]),
-        "\\": KeyCodeInfo(e.KEY_BACKSLASH),
-        "|": KeyCodeInfo(e.KEY_BACKSLASH, [e.KEY_LEFTSHIFT]),
-        # Middle row
-        "a": KeyCodeInfo(e.KEY_A),
-        "A": KeyCodeInfo(e.KEY_A, [e.KEY_LEFTSHIFT]),
-        "r": KeyCodeInfo(e.KEY_S),
-        "R": KeyCodeInfo(e.KEY_S, [e.KEY_LEFTSHIFT]),
-        "s": KeyCodeInfo(e.KEY_D),
-        "S": KeyCodeInfo(e.KEY_D, [e.KEY_LEFTSHIFT]),
-        "t": KeyCodeInfo(e.KEY_F),
-        "T": KeyCodeInfo(e.KEY_F, [e.KEY_LEFTSHIFT]),
-        "d": KeyCodeInfo(e.KEY_G),
-        "D": KeyCodeInfo(e.KEY_G, [e.KEY_LEFTSHIFT]),
-        "h": KeyCodeInfo(e.KEY_H),
-        "H": KeyCodeInfo(e.KEY_H, [e.KEY_LEFTSHIFT]),
-        "n": KeyCodeInfo(e.KEY_J),
-        "N": KeyCodeInfo(e.KEY_J, [e.KEY_LEFTSHIFT]),
-        "e": KeyCodeInfo(e.KEY_K),
-        "E": KeyCodeInfo(e.KEY_K, [e.KEY_LEFTSHIFT]),
-        "i": KeyCodeInfo(e.KEY_L),
-        "I": KeyCodeInfo(e.KEY_L, [e.KEY_LEFTSHIFT]),
-        "o": KeyCodeInfo(e.KEY_SEMICOLON),
-        "O": KeyCodeInfo(e.KEY_SEMICOLON, [e.KEY_LEFTSHIFT]),
-        "'": KeyCodeInfo(e.KEY_APOSTROPHE),
-        "\"": KeyCodeInfo(e.KEY_APOSTROPHE, [e.KEY_LEFTSHIFT]),
-        # Bottom row
-        "z": KeyCodeInfo(e.KEY_Z),
-        "Z": KeyCodeInfo(e.KEY_Z, [e.KEY_LEFTSHIFT]),
-        "x": KeyCodeInfo(e.KEY_X),
-        "X": KeyCodeInfo(e.KEY_X, [e.KEY_LEFTSHIFT]),
-        "c": KeyCodeInfo(e.KEY_C),
-        "C": KeyCodeInfo(e.KEY_C, [e.KEY_LEFTSHIFT]),
-        "v": KeyCodeInfo(e.KEY_V),
-        "V": KeyCodeInfo(e.KEY_V, [e.KEY_LEFTSHIFT]),
-        "b": KeyCodeInfo(e.KEY_B),
-        "B": KeyCodeInfo(e.KEY_B, [e.KEY_LEFTSHIFT]),
-        "k": KeyCodeInfo(e.KEY_N),
-        "K": KeyCodeInfo(e.KEY_N, [e.KEY_LEFTSHIFT]),
-        "m": KeyCodeInfo(e.KEY_M),
-        "M": KeyCodeInfo(e.KEY_M, [e.KEY_LEFTSHIFT]),
-        ",": KeyCodeInfo(e.KEY_COMMA),
-        "<": KeyCodeInfo(e.KEY_COMMA, [e.KEY_LEFTSHIFT]),
-        ".": KeyCodeInfo(e.KEY_DOT),
-        ">": KeyCodeInfo(e.KEY_DOT, [e.KEY_LEFTSHIFT]),
-        "/": KeyCodeInfo(e.KEY_SLASH),
-        "?": KeyCodeInfo(e.KEY_SLASH, [e.KEY_LEFTSHIFT]),
-    },
-    "colemak-dh": {
-        **BASE_LAYOUT,
-        # Top row
-        "q": KeyCodeInfo(e.KEY_Q),
-        "Q": KeyCodeInfo(e.KEY_Q, [e.KEY_LEFTSHIFT]),
-        "w": KeyCodeInfo(e.KEY_W),
-        "W": KeyCodeInfo(e.KEY_W, [e.KEY_LEFTSHIFT]),
-        "f": KeyCodeInfo(e.KEY_E),
-        "F": KeyCodeInfo(e.KEY_E, [e.KEY_LEFTSHIFT]),
-        "p": KeyCodeInfo(e.KEY_R),
-        "P": KeyCodeInfo(e.KEY_R, [e.KEY_LEFTSHIFT]),
-        "b": KeyCodeInfo(e.KEY_T),
-        "B": KeyCodeInfo(e.KEY_T, [e.KEY_LEFTSHIFT]),
-        "j": KeyCodeInfo(e.KEY_Y),
-        "J": KeyCodeInfo(e.KEY_Y, [e.KEY_LEFTSHIFT]),
-        "l": KeyCodeInfo(e.KEY_U),
-        "L": KeyCodeInfo(e.KEY_U, [e.KEY_LEFTSHIFT]),
-        "u": KeyCodeInfo(e.KEY_I),
-        "U": KeyCodeInfo(e.KEY_I, [e.KEY_LEFTSHIFT]),
-        "y": KeyCodeInfo(e.KEY_O),
-        "Y": KeyCodeInfo(e.KEY_O, [e.KEY_LEFTSHIFT]),
-        ";": KeyCodeInfo(e.KEY_P),
-        ":": KeyCodeInfo(e.KEY_P, [e.KEY_LEFTSHIFT]),
-        "[": KeyCodeInfo(e.KEY_LEFTBRACE),
-        "{": KeyCodeInfo(e.KEY_LEFTBRACE, [e.KEY_LEFTSHIFT]),
-        "]": KeyCodeInfo(e.KEY_RIGHTBRACE),
-        "}": KeyCodeInfo(e.KEY_RIGHTBRACE, [e.KEY_LEFTSHIFT]),
-        "\\": KeyCodeInfo(e.KEY_BACKSLASH),
-        "|": KeyCodeInfo(e.KEY_BACKSLASH, [e.KEY_LEFTSHIFT]),
-        # Middle row
-        "a": KeyCodeInfo(e.KEY_A),
-        "A": KeyCodeInfo(e.KEY_A, [e.KEY_LEFTSHIFT]),
-        "r": KeyCodeInfo(e.KEY_S),
-        "R": KeyCodeInfo(e.KEY_S, [e.KEY_LEFTSHIFT]),
-        "s": KeyCodeInfo(e.KEY_D),
-        "S": KeyCodeInfo(e.KEY_D, [e.KEY_LEFTSHIFT]),
-        "t": KeyCodeInfo(e.KEY_F),
-        "T": KeyCodeInfo(e.KEY_F, [e.KEY_LEFTSHIFT]),
-        "g": KeyCodeInfo(e.KEY_G),
-        "G": KeyCodeInfo(e.KEY_G, [e.KEY_LEFTSHIFT]),
-        "m": KeyCodeInfo(e.KEY_H),
-        "M": KeyCodeInfo(e.KEY_H, [e.KEY_LEFTSHIFT]),
-        "n": KeyCodeInfo(e.KEY_J),
-        "N": KeyCodeInfo(e.KEY_J, [e.KEY_LEFTSHIFT]),
-        "e": KeyCodeInfo(e.KEY_K),
-        "E": KeyCodeInfo(e.KEY_K, [e.KEY_LEFTSHIFT]),
-        "i": KeyCodeInfo(e.KEY_L),
-        "I": KeyCodeInfo(e.KEY_L, [e.KEY_LEFTSHIFT]),
-        "o": KeyCodeInfo(e.KEY_SEMICOLON),
-        "O": KeyCodeInfo(e.KEY_SEMICOLON, [e.KEY_LEFTSHIFT]),
-        "'": KeyCodeInfo(e.KEY_APOSTROPHE),
-        "\"": KeyCodeInfo(e.KEY_APOSTROPHE, [e.KEY_LEFTSHIFT]),
-        # Bottom row
-        "x": KeyCodeInfo(e.KEY_Z),
-        "X": KeyCodeInfo(e.KEY_Z, [e.KEY_LEFTSHIFT]),
-        "c": KeyCodeInfo(e.KEY_X),
-        "C": KeyCodeInfo(e.KEY_X, [e.KEY_LEFTSHIFT]),
-        "d": KeyCodeInfo(e.KEY_C),
-        "D": KeyCodeInfo(e.KEY_C, [e.KEY_LEFTSHIFT]),
-        "v": KeyCodeInfo(e.KEY_V),
-        "V": KeyCodeInfo(e.KEY_V, [e.KEY_LEFTSHIFT]),
-        "z": KeyCodeInfo(e.KEY_B),  # less than-key
-        "Z": KeyCodeInfo(e.KEY_B, [e.KEY_LEFTSHIFT]),
-        "k": KeyCodeInfo(e.KEY_N),
-        "K": KeyCodeInfo(e.KEY_N, [e.KEY_LEFTSHIFT]),
-        "h": KeyCodeInfo(e.KEY_M),
-        "H": KeyCodeInfo(e.KEY_M, [e.KEY_LEFTSHIFT]),
-        ",": KeyCodeInfo(e.KEY_COMMA),
-        "<": KeyCodeInfo(e.KEY_COMMA, [e.KEY_LEFTSHIFT]),
-        ".": KeyCodeInfo(e.KEY_DOT),
-        ">": KeyCodeInfo(e.KEY_DOT, [e.KEY_LEFTSHIFT]),
-        "/": KeyCodeInfo(e.KEY_SLASH),
-        "?": KeyCodeInfo(e.KEY_SLASH, [e.KEY_LEFTSHIFT]),
-    },
-}
-
-# Ignore keys with modifiers
-HANDLED_KEYCODE_TO_KEY = {v.keycode: key for key, v in LAYOUTS[DEFAULT_LAYOUT].items() if len(v.modifiers) == 0}
-# Make sure no keys missing. Last 5 are "\t\n\r\x0b\x0c" which don't need to be handled
-assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
-
 class KeyboardEmulation(GenericKeyboardEmulation):
+    _key_to_keycodeinfo: dict[str, KeyCodeInfo]
+
     def __init__(self):
         super().__init__()
         # Initialize UInput with all keys available
@@ -501,16 +36,39 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             log.warning(
                 "It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly."
             )
+        # Set initial default layout so _get_key() works before Wayland connection is established
+        self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
+        
 
     def _update_layout(self, layout):
+        if layout == WAYLAND_AUTO_LAYOUT_NAME:
+            try:
+                symbols = get_wayland_keymap(5)
+                # Verify that no modifier has its own modifiers in the Wayland keymap
+                for key_info in symbols.values():
+                    if key_info.keycode in MODIFIER_KEY_CODES and len(key_info.modifiers) > 0:
+                        log.warning(f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior.")
+                self._key_to_keycodeinfo = symbols
+                print("Wayland keymap:", symbols)
+            except Exception as e:
+                log.error(f"Failed to get Wayland keymap: {e}. Using default layout.")
+                self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
+            return
+        else:
+            if self._wayland_connection_thread is not None:
+                self._wayland_connection.shutdown()
+                
+            self._wayland_connection_thread = None
+            self._wayland_connection = WaylandConnection()
+
         if not layout in LAYOUTS:
             log.warning(f"Layout {layout} not supported. Falling back to qwerty.")
-        self._KEY_TO_KEYCODEINFO = LAYOUTS.get(layout, LAYOUTS[DEFAULT_LAYOUT])
+        self._key_to_keycodeinfo = LAYOUTS.get(layout, LAYOUTS[DEFAULT_LAYOUT])
 
     def _get_key(self, key):
         """Helper function to get the keycode and potential modifiers for a key."""
-        if key in self._KEY_TO_KEYCODEINFO:
-            key_map_info = self._KEY_TO_KEYCODEINFO[key]
+        key_map_info = self._key_to_keycodeinfo.get(key, None)
+        if key_map_info is not None:
             return (key_map_info.keycode, key_map_info.modifiers)
         return (None, [])
 
@@ -536,6 +94,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def _send_char(self, char):
         (base, mods) = self._get_key(char)
+        print("Key", char, "->", base, mods)
 
         # Key can be sent with a key combination
         if base is not None:
@@ -563,9 +122,11 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def send_key_combination(self, combo):
         # https://plover.readthedocs.io/en/latest/api/key_combo.html#module-plover.key_combo
+        print("Sending key combination: " + combo)
         key_events = parse_key_combo(combo)
 
         for key, pressed in self.with_delay(key_events):
+            print("Combo: Key: " + key)
             (base, _) = self._get_key(key)
 
             if base is not None:
@@ -583,9 +144,9 @@ class KeyboardCapture(Capture):
     # and check if it should stop.
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
-    _steno_thread: threading.Thread | None
 
     def __init__(self):
+        print("init")
         super().__init__()
         # This is based on the example from the python-evdev documentation: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-selectors
         self._devices = self._get_devices()
@@ -596,11 +157,10 @@ class KeyboardCapture(Capture):
         self._device_thread = None
         self._device_thread_read_pipe = None
         self._device_thread_write_pipe = None
-        self._steno_thread = None
 
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
-        self._suppressed_keys = []
+        self._suppressed_keys = set()
         # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
 
     def _get_devices(self):
@@ -658,8 +218,6 @@ class KeyboardCapture(Capture):
 
             self._device_thread = threading.Thread(target=self._run)
             self._device_thread.start()
-            self._steno_thread = threading.Thread(target=self._handle_events)
-            self._steno_thread.start()
 
             self._running = True
         except Exception:
@@ -677,10 +235,9 @@ class KeyboardCapture(Capture):
         if self._device_thread_read_pipe is not None:
             self._selector.unregister(self._device_thread_read_pipe)
             os.close(self._device_thread_read_pipe)
-            self._device_thread_read_pipe = None
         if self._device_thread_write_pipe is not None:
             os.close(self._device_thread_write_pipe)
-            self._device_thread_write_pipe = None
+        self._selector.close()
 
         self._running = False
 
@@ -690,77 +247,65 @@ class KeyboardCapture(Capture):
         are passed through to a UInput device and emulated, while keys in this list get sent to plover.
         It does add a little bit of delay, but that is not noticeable.
         """
-        self._suppressed_keys = suppressed_keys
-
-    def _handle_events(self):
-        """Thread to handle process nonsuppressed keyboard events."""
-        while True:
-            event = self._queue.get()
-            if event is None:
-                break
-            key_name, pressed = event
-            if pressed:
-                self.key_down(key_name)
-            else:
-                self.key_up(key_name)
+        self._suppressed_keys = set(suppressed_keys)
+        print("Suppressed keys", suppressed_keys)
 
     def _run(self):
         keys_pressed_with_modifier: set[int] = set()
         down_modifier_keys: set[int] = set()
 
-        def _should_suppress(event: InputEvent) -> bool:
+        def _parse_key_event(event: InputEvent) -> tuple[str | None, bool]:
+            """
+            Returns a tuple of (key_to_send_to_plover, suppress)
+            """
+            if not self._suppressed_keys:
+                # No keys are suppressed
+                # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
+                return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
             if event.code in MODIFIER_KEY_CODES:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
-                return False
+                return None, False
             key = HANDLED_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
-                # Key is unhandled. Don't suppress
-                return False
+                # Key is unhandled. Passthrough
+                return None, False
             if event.value == KeyEvent.key_down and down_modifier_keys:
                 keys_pressed_with_modifier.add(event.code)
-                return False
+                return None, False
             if event.value == KeyEvent.key_up and event.code in keys_pressed_with_modifier:
                 # Must pass through key up event if key was pressed with modifier
                 # or else it will stay pressed down and start repeating.
                 # Must release even if modifier key was released first
                 keys_pressed_with_modifier.discard(event.code)
-                return False
-            suppressed = key in self._suppressed_keys
-            return suppressed
+                return None, False
+            suppress = key in self._suppressed_keys
+            return key, suppress
 
         try:
             while True:
                 for key, events in self._selector.select():
                     if key.fd == self._device_thread_read_pipe:
-                        # Clear the pipe
-                        os.read(key.fd, 999)
-                        # Signal other thread to stop
-                        self._queue.put(None)
+                        # Stop this thread
                         return
                     assert isinstance(key.fileobj, InputDevice)
                     device: InputDevice = key.fileobj
                     for event in device.read():
                         if event.type == e.EV_KEY:
-                            if event.code in HANDLED_KEYCODE_TO_KEY:
-                                key_name = HANDLED_KEYCODE_TO_KEY[event.code]
-                                suppressed = _should_suppress(event)
-                                if not self._suppressed_keys or suppressed:
-                                    # Always send keys to plover even if not suppressed
-                                    # so that it can handle global shortcuts
-                                    # like PLOVER_TOGGLE (PHRO*L)
-                                    if event.value == KeyEvent.key_down:
-                                        self._queue.put((key_name, True))
-                                    elif event.value == KeyEvent.key_up:
-                                        self._queue.put((key_name, False))
-                                if self._suppressed_keys and suppressed:
-                                    # Skip rest of loop to prevent event from
-                                    # being passed through
-                                    continue
-
+                            key_to_send_to_plover, suppress = _parse_key_event(event)
+                            if key_to_send_to_plover is not None:
+                                # Always send keys to Plover when no keys suppressed
+                                if event.value == KeyEvent.key_down:
+                                    self.key_down(key_to_send_to_plover)
+                                elif event.value == KeyEvent.key_up:
+                                    self.key_up(key_to_send_to_plover)
+                            if suppress:
+                                # Skip rest of loop to prevent event from
+                                # being passed through
+                                continue
 
                         # Passthrough event
                         self._ui.write_event(event)

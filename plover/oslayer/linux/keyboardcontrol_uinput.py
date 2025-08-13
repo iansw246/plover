@@ -126,7 +126,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         key_events = parse_key_combo(combo)
 
         for key, pressed in self.with_delay(key_events):
-            print("Combo: Key: " + key)
+            print("Key: " + key)
             (base, _) = self._get_key(key)
 
             if base is not None:

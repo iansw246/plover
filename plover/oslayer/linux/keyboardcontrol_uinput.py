@@ -1,3 +1,7 @@
+import threading
+import os
+import selectors
+
 from evdev import (
     UInput,
     ecodes as e,
@@ -7,13 +11,7 @@ from evdev import (
     InputEvent,
     KeyEvent,
 )
-import os
-import threading
-import selectors
-import queue
-
 from psutil import process_iter
-from evdev import UInput, ecodes as e, util, InputDevice, list_devices, InputEvent, KeyEvent
 from xkbcommon import xkb
 
 from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, MODIFIER_KEY_CODES, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, get_wayland_keymap
@@ -136,23 +134,16 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
 class KeyboardCapture(Capture):
     _selector: selectors.DefaultSelector
-    _queue: queue.Queue[tuple[str, bool] | None]
     _device_thread: threading.Thread | None
-    # Pipe to signal _monitor_devices thread to stop
-    # The thread will select() on this pipe to know when to stop
-    # This way, the thread does not need periodically stop reading input devices
-    # and check if it should stop.
+    # Pipes to signal `_run` thread to stop
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
 
     def __init__(self):
         print("init")
         super().__init__()
-        # This is based on the example from the python-evdev documentation: https://python-evdev.readthedocs.io/en/latest/tutorial.html#reading-events-from-multiple-devices-using-selectors
         self._devices = self._get_devices()
-        self._running = False
 
-        self._queue = queue.Queue()
         self._selector = selectors.DefaultSelector()
         self._device_thread = None
         self._device_thread_read_pipe = None
@@ -209,6 +200,9 @@ class KeyboardCapture(Capture):
                 log.debug("failed to ungrab device", exc_info=True)
 
     def start(self):
+        # Exception handling note: cancel() will eventually be called when the
+        # machine reconnect button is pressed or when the machine is changed.
+        # Therefore, cancel() does not need to be called in the except block.
         try:
             self._grab_devices()
             self._device_thread_read_pipe, self._device_thread_write_pipe = os.pipe()
@@ -218,28 +212,31 @@ class KeyboardCapture(Capture):
 
             self._device_thread = threading.Thread(target=self._run)
             self._device_thread.start()
-
-            self._running = True
         except Exception:
             self._ungrab_devices()
+            self._ui.close()
             raise
 
     def cancel(self):
-        # Write some arbitrary data to the pipe to signal the _run thread to stop
-        if self._device_thread_write_pipe is not None:
+        if (
+            self._device_thread_read_pipe is None
+            or self._device_thread_write_pipe is None
+        ):
+            # The only way for these pipes to be None is if pipe creation in start() failed
+            # In that case, no other code after pipe creation would have run
+            # and no cleanup is required
+            return
+        try:
+            # Write some arbitrary data to the pipe to signal the _run thread to stop
             os.write(self._device_thread_write_pipe, b"a")
-        if self._device_thread is not None:
-            self._device_thread.join()
-            self._device_thread = None
-
-        if self._device_thread_read_pipe is not None:
-            self._selector.unregister(self._device_thread_read_pipe)
+            if self._device_thread is not None:
+                self._device_thread.join()
+            self._selector.close()
+        except Exception:
+            log.debug("error stopping KeyboardCapture", exc_info=True)
+        finally:
             os.close(self._device_thread_read_pipe)
-        if self._device_thread_write_pipe is not None:
             os.close(self._device_thread_write_pipe)
-        self._selector.close()
-
-        self._running = False
 
     def suppress(self, suppressed_keys=()):
         """
@@ -276,7 +273,10 @@ class KeyboardCapture(Capture):
             if event.value == KeyEvent.key_down and down_modifier_keys:
                 keys_pressed_with_modifier.add(event.code)
                 return None, False
-            if event.value == KeyEvent.key_up and event.code in keys_pressed_with_modifier:
+            if (
+                event.value == KeyEvent.key_up
+                and event.code in keys_pressed_with_modifier
+            ):
                 # Must pass through key up event if key was pressed with modifier
                 # or else it will stay pressed down and start repeating.
                 # Must release even if modifier key was released first
@@ -297,7 +297,11 @@ class KeyboardCapture(Capture):
                         if event.type == e.EV_KEY:
                             key_to_send_to_plover, suppress = _parse_key_event(event)
                             if key_to_send_to_plover is not None:
-                                # Always send keys to Plover when no keys suppressed
+                                # Always send keys to Plover when no keys suppressed.
+                                # This is required for global shortcuts like
+                                # Plover toggle (PHROLG) when Plover is disabled.
+                                # Note: Must explicitly check key_up or key_down
+                                # because there is a third case: key_hold
                                 if event.value == KeyEvent.key_down:
                                     self.key_down(key_to_send_to_plover)
                                 elif event.value == KeyEvent.key_up:

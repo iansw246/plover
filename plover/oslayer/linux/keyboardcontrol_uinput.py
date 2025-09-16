@@ -1,6 +1,7 @@
 import threading
 import os
 import selectors
+from typing import Any
 
 from evdev import (
     UInput,
@@ -14,7 +15,7 @@ from evdev import (
 from psutil import process_iter
 from xkbcommon import xkb
 
-from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, MODIFIER_KEY_CODES, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, get_wayland_keymap
+from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, compute_modifier_keycodes, ev_keycode_to_xkb_keycode, generate_plover_keymap_from_xkb_keymap, get_wayland_keymap, xkb_keycode_to_ev_keycode
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo
@@ -41,13 +42,18 @@ class KeyboardEmulation(GenericKeyboardEmulation):
     def _update_layout(self, layout):
         if layout == WAYLAND_AUTO_LAYOUT_NAME:
             try:
-                symbols = get_wayland_keymap(5)
+                keymap = get_wayland_keymap(5)
+                modifier_index_to_keycode = compute_modifier_keycodes(keymap)
+                modifier_keycodes = set(keycode for keycodes in modifier_index_to_keycode for keycode in keycodes)
+                print("Modifier index to keycode:", modifier_index_to_keycode)
+
+                self._key_to_keycodeinfo = generate_plover_keymap_from_xkb_keymap(keymap, modifier_index_to_keycode)
+                # TODO: Determine if this every happens and if it's necessary
                 # Verify that no modifier has its own modifiers in the Wayland keymap
-                for key_info in symbols.values():
-                    if key_info.keycode in MODIFIER_KEY_CODES and len(key_info.modifiers) > 0:
+                for key_info in self._key_to_keycodeinfo.values():
+                    if ev_keycode_to_xkb_keycode(key_info.keycode) in modifier_keycodes and len(key_info.modifiers) > 0:
                         log.warning(f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior.")
-                self._key_to_keycodeinfo = symbols
-                print("Wayland keymap:", symbols)
+                print("Wayland keymap:", self._key_to_keycodeinfo)
             except Exception as e:
                 log.error(f"Failed to get Wayland keymap: {e}. Using default layout.")
                 self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
@@ -138,6 +144,7 @@ class KeyboardCapture(Capture):
     # Pipes to signal `_run` thread to stop
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
+    _modifier_keycodes: set[int]
 
     def __init__(self):
         print("init")
@@ -152,7 +159,11 @@ class KeyboardCapture(Capture):
         self._res = util.find_ecodes_by_regex(r"KEY_.*")
         self._ui = UInput(self._res)
         self._suppressed_keys = set()
-        # The keycodes from evdev, e.g. e.KEY_A refers to the *physical* a, which corresponds with the qwerty layout.
+
+        keymap = get_wayland_keymap(5)
+        self._modifier_keycodes = set(xkb_keycode_to_ev_keycode(keycode) for keycodes in compute_modifier_keycodes(keymap) for keycode in keycodes)
+        print("Modifier keycodes:", self._modifier_keycodes)
+
 
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
@@ -163,7 +174,6 @@ class KeyboardCapture(Capture):
         """
         Filter out devices that should not be grabbed and suppressed, to avoid output feeding into itself.
         """
-        capabilities = device.capabilities()
         is_uinput = device.name == "py-evdev-uinput" or device.phys == "py-evdev-uinput"
         # Check for some common keys to make sure it's really a keyboard
         keys = device.capabilities().get(e.EV_KEY, [])
@@ -259,7 +269,8 @@ class KeyboardCapture(Capture):
                 # No keys are suppressed
                 # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
                 return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
-            if event.code in MODIFIER_KEY_CODES:
+            if event.code in self._modifier_keycodes:
+                print("Modified pressed:", event.code)
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)

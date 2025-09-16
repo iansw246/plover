@@ -49,7 +49,7 @@ WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 
 # Additional aliases for xkbcommon keysyms
 # Keys beginning with "XF86" are handled as a special case during xkbcommon keymap processing
-# For each xkbcommon keysyms, the lowercase of the symbol name is also added to the keymap by the code
+# For each xkbcommon keysyms, the lowercase of the symbol name is already added to the keymap by the code
 XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "Return": ["\n"],
     "Control_L": ["ctrl", "ctrl_l"],
@@ -72,13 +72,26 @@ XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "KP_Delete": ["kp_dot", "kp_decimal"],
 }
 
-def round_up(value: int, multiple: int):
+def xkb_keycode_to_ev_keycode(keycode: int):
+    return keycode - XKB_TO_EV_KEYCODE_OFFSET
+
+def ev_keycode_to_xkb_keycode(keycode: int):
+    return keycode + XKB_TO_EV_KEYCODE_OFFSET
+
+def round_up_power_of_two(value: int, multiple: int):
     """Round `value` up to the nearest multiple of `multiple`.
     `multiple` must be positive and a power of 2"""
     assert multiple & 1 == 0
     return (value + multiple - 1) & ~(multiple - 1)
 
 class WaylandConnection:
+    """Context manager for connecting to the Wayland server.
+    
+    Useful resources:
+    - https://wayland-book.com/
+    - https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-Wire-Format
+    - https://wayland.app/protocols/wayland
+    """
     fd_queue: collections.deque[int]
     _wayland_socket: socket.socket
     _shutdown_pipe_read: int
@@ -92,6 +105,7 @@ class WaylandConnection:
 
 
     def __enter__(self):
+        # Find socket path following libwayland (https://wayland-book.com/protocol-design/wire-protocol.html#transports)
         xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
         socket_path = os.path.join(xdg_runtime_dir, wayland_display)
@@ -105,18 +119,23 @@ class WaylandConnection:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._selector.close()
-        self._wayland_socket.shutdown(socket.SHUT_RDWR)
-        self._wayland_socket.close()
-        os.close(self._shutdown_pipe_read)
-        os.close(self._shutdown_pipe_write)
+        try:
+            self._selector.close()
+        finally:
+            self._wayland_socket.shutdown(socket.SHUT_RDWR)
+            self._wayland_socket.close()
+            os.close(self._shutdown_pipe_read)
+            os.close(self._shutdown_pipe_write)
 
     def recv_message(self):
-        """Receive an event from the Wayland server.
+        """Receive an event from the Wayland server. Blocks until a complete message is received.
         
-        Returns a tuple of (object_id, length, opcode, event_data_bytes)
+        Returns:
+            A tuple of (object_id, length, opcode, event_data_bytes)
         """
-        # The only event we care about is wl_keyboard::keymap which only has one fd
+        # The only event with fds that we care about is wl_keyboard::keymap which only has one fd
+        # In each message, we only need to receive at most one fd
+        # TODO: Unless messages with more delay when we received the keymap event fds?
         MAX_FD_COUNT = 1
         event_header_bytes, fds = self._recv_fds_exact(WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
         self.fd_queue.extend(fds)
@@ -130,10 +149,11 @@ class WaylandConnection:
 
     def send_message(self, object_id: int, opcode: int, data: bytes | bytearray):
         """Send a request to the Wayland server.
-        
-        `object_id` is the ID of the object to send the request to.
-        `opcode` is the opcode of the request.
-        `data` is the data to send with the request.
+
+        Args:
+            object_id: The ID of the object to send the request to.
+            opcode: The opcode of the request.
+            data: The data to send with the request.
         """
         length = WAYLAND_MESSAGE_HEADER_SIZE_BYTES + len(data)
         # Wayland messages are streams of 32-bit (4 byte) values
@@ -150,11 +170,12 @@ class WaylandConnection:
         os.write(self._shutdown_pipe_write, b"\x00")
 
     def _recv_fds_exact(self, length: int, fd_count: int):
-        """Receive exactly `length` bytes from the Wayland server and `fd_count` file descriptors.
+        """Receive exactly `length` bytes from the Wayland server and up to `fd_count` file descriptors.
 
-        Raises InterruptedError if the connection is shut down using `WaylandConnection.shutdown()`.
-        
-        Returns a tuple of (data_bytes, fds)
+        Returns:
+            A tuple of (data bytes received, fds received)
+        Raises:
+            InterruptedError: if the connection is shut down using `WaylandConnection.shutdown()`.
         """
         fds = array.array("i")
         buffer = bytearray(length)
@@ -173,7 +194,9 @@ class WaylandConnection:
                 n, ancdata, flags, addr = self._wayland_socket.recvmsg_into([view], socket.CMSG_LEN(fd_count * fds.itemsize))
                 for cmsg_level, cmsg_type, cmsg_data in ancdata:
                     if cmsg_level == socket.SOL_SOCKET and cmsg_type == socket.SCM_RIGHTS:
+                        # Append data, ignoring any truncated integers at the end.
                         fds.frombytes(cmsg_data[:len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
+                # Advance write position in buffer
                 view = view[n:]
                 length -= n
 
@@ -184,13 +207,14 @@ class WaylandConnection:
 
 def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
     """Get the keymap from the Wayland server.
+    See https://wayland.app/protocols/wayland for the opcodes and arguments
     
     Returns a tuple of (keymap_fd, keymap_size) as returned by the Wayland server.
     """
     # wl_display::get_registry
     # display id: DISPLAY_ID
     # opcode: 1
-    # new id for register: REGISTRY_ID
+    # new id for registry: REGISTRY_ID
     connection.send_message(DISPLAY_ID, 1, struct.pack("=I", REGISTRY_ID))
 
     # wl_display::sync
@@ -199,18 +223,18 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
     # new_id for callback: SYNC_ID
     connection.send_message(DISPLAY_ID, 0, struct.pack("=I", SYNC_ID))
 
+    # Read all wl_display::get_registry events
     while True:
         object_id, length, opcode, event_data_bytes = connection.recv_message()
         if object_id == SYNC_ID:
-            # wl_callback::done
-            assert opcode == 0
+            assert opcode == 0, f"Expected opcode 0 (wl_callback::done) for all events on wl_callback object (id {object_id})"
             break
         elif object_id == REGISTRY_ID and opcode == 0:
             # wl_registry::global
             name, interface_length = struct.unpack("=II", event_data_bytes[:8])
             # -1 to skip null terminator
             interface = event_data_bytes[8:8 + interface_length - 1].decode("utf-8")
-            version_start_index = round_up(8 + interface_length, 4)
+            version_start_index = round_up_power_of_two(8 + interface_length, 4)
             version = struct.unpack("=I", event_data_bytes[version_start_index:version_start_index + 4])[0]
             print(f"Global: {name}, {interface}, {version}")
 
@@ -225,16 +249,11 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
 
+    # Read all wl_seat events
     has_keyboard = False
     while True:
         object_id, length, opcode, event_data_bytes = connection.recv_message()
-        if object_id == SYNC_ID:
-            # wl_callback::done
-            assert opcode == 0
-            # Skip callback_data
-            print("Done receiving seat events")
-            break
-        elif object_id == SEAT_ID and opcode == 0:
+        if object_id == SEAT_ID and opcode == 0:
             # wl_seat::capabilities
             assert opcode == 0
             assert length == WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4, f"Expected enum to be 4 bytes, got {length}"
@@ -260,7 +279,7 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
     # Get wl_keyboard
     connection.send_message(SEAT_ID, 1, struct.pack("=I", KEYBOARD_ID))
 
-    # Wait for wl_keyboard::keymap
+    # Wait for and process wl_keyboard::keymap
     while True:
         object_id, length, opcode, event_data_bytes = connection.recv_message()
         if object_id == KEYBOARD_ID and opcode == 0:
@@ -280,10 +299,13 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
             print(f"Keymap size: {keymap_size}")
                 
             return fd, keymap_size
+        elif object_id == DISPLAY_ID and opcode == 0:
+            # wl_display::error
+            raise RuntimeError(f"Wayland error: {repr(event_data_bytes)}")
         else:
             print("Ignoring event for object", object_id, "opcode", opcode)
 
-def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
+def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
     """
     Returns a list of xkbcommon keycodes for each non-latched or non-locked modifier in order of the modifier's index.
     If the modifier is latched or locked (e.g. NumLock), the keycode is None.
@@ -292,10 +314,11 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
     If multiple keys produce the same modifier, an arbitrary one is chosen.
     """
     num_mods = keymap.num_mods()
-    modifier_keycodes: list[int | None] = [None] * num_mods
+    mod_index_to_mod_keycodes: list[list[int]] = [[] for _ in range(num_mods)]
 
     for keycode in keymap:
-        if keycode - XKB_TO_EV_KEYCODE_OFFSET not in VALID_EV_KEYCODES:
+        # TODO: Why is this necessary?
+        if xkb_keycode_to_ev_keycode(keycode) not in VALID_EV_KEYCODES:
             continue
         keyboard_state = xkb.KeyboardState(keymap)
         key_state = keyboard_state.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
@@ -312,20 +335,19 @@ def compute_modifier_keycodes(keymap: xkb.Keymap) -> list[int | None]:
                 continue
 
             for mod_index in range(num_mods):
-                if modifier_keycodes[mod_index] is not None:
-                    continue
                 is_mod_active = keyboard_state.mod_index_is_active(mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
                 if not is_mod_active:
                     continue
 
                 keysyms = keymap.key_get_syms_by_level(keycode, layout, 0)
+                print("Modifier", keymap.mod_get_name(mod_index), "Keysyms:", keysyms, "Keycode:", keycode)
                 if len(keysyms) != 1:
                     continue
 
-                modifier_keycodes[mod_index] = keycode
-            break
+                mod_index_to_mod_keycodes[mod_index].append(keycode)
+            # break
 
-    return modifier_keycodes
+    return mod_index_to_mod_keycodes
 
 @contextlib.contextmanager
 def fd_context(fd: int):
@@ -334,7 +356,7 @@ def fd_context(fd: int):
     finally:
         os.close(fd)
 
-def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
+def get_wayland_keymap(timeout: float) -> xkb.Keymap:
     with WaylandConnection() as connection:
         done = False
         def timeout_thread_function():
@@ -354,14 +376,17 @@ def get_wayland_keymap(timeout: float) -> dict[str, KeyCodeInfo]:
     with fd_context(keymap_fd) as keymap_fd:
         xkb_context = xkb.Context()
         with mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file:
-            keymap = xkb_context.keymap_new_from_file(keymap_file)
-    return generate_plover_keymap_from_xkb_keymap(keymap)
+            return xkb_context.keymap_new_from_file(keymap_file)
 
-def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyCodeInfo]:
-    modifier_index_to_keycode = compute_modifier_keycodes(keymap)
-
-    # == The following code in this function is based on the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py) ==
-    symbols: dict[str, KeyCodeInfo] = {}
+def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]] | None = None) -> dict[str, KeyCodeInfo]:
+    """
+    Generate a mapping of Plover key names (key names used in dictionary entries) to `KeyCodeInfo` objects.
+    `modifier_index_to_keycode` is optional and should be the result of `compute_modifier_keycodes`. If it is not provided, `compute_modifier_keycodes` will be called to compute it. It is a parameter to avoid recomputing the modifier keycodes if they are needed multiple times.
+    """
+    if modifier_index_to_keycode is None:
+        modifier_index_to_keycode = compute_modifier_keycodes(keymap)
+    # The following code in this function was based off of the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py)
+    plover_key_to_keycode: dict[str, KeyCodeInfo] = {}
 
     layout_index = 0
     for key in iter(keymap):
@@ -369,59 +394,62 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap) -> dict[str, KeyC
             continue
         try:
             # Levels are different outputs from the same key with modifiers pressed
-            levels = keymap.num_levels_for_key(key, layout_index)
+            level_count = keymap.num_levels_for_key(key, layout_index)
 
-            for level in range(levels):
-                level_key_syms = keymap.key_get_syms_by_level(key, layout_index, level)
-                for level_key_sym in level_key_syms:
-                    level_key_name = xkb.keysym_get_name(level_key_sym)
-                    level_key = xkb.keysym_to_string(level_key_sym)
+            for level in range(level_count):
+                key_syms_for_level = keymap.key_get_syms_by_level(key, layout_index, level)
+                for key_sym in key_syms_for_level:
+                    key_name_for_level = xkb.keysym_get_name(key_sym)
+                    key_for_level = xkb.keysym_to_string(key_sym)
 
-                    modifier_masks = keymap.key_get_mods_for_level(key, layout_index, level)
+                    modifier_masks_for_level = keymap.key_get_mods_for_level(key, layout_index, level)
                     key_modifiers: list[int] = []
-                    for mask in modifier_masks:
+                    # Identify sets of modifiers pressed to obtain this key and this level
+                    # Each `mask` is a bitfield of modifiers pressed
+                    for mask in modifier_masks_for_level:
                         modifier_index = 0
                         while mask > 0:
                             if mask & 1:
-                                modifier_keycode = modifier_index_to_keycode[modifier_index]
-                                if modifier_keycode is None:
+                                modifier_keycodes = modifier_index_to_keycode[modifier_index]
+                                if not modifier_keycodes:
                                     break
-                                key_modifiers.append(modifier_keycode - XKB_TO_EV_KEYCODE_OFFSET)
+                                # Arbitrarily use the first keycode for the modifier if the modifier has multiple keycodes
+                                key_modifiers.append(modifier_keycodes[0] - XKB_TO_EV_KEYCODE_OFFSET)
                             mask >>= 1
                             modifier_index += 1
                         else:
                             break
 
-                    if level_key is not None and level_key not in symbols:
-                        # Because we iterate levels in order, only the lowest level and thus simplest set of modifiers for each symbol is added,
-                        # unless multiple keys produce the same symbol. Same for level_key_name and aliases below
-                        symbols[level_key] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+                    if key_for_level is not None and key_for_level not in plover_key_to_keycode:
+                        # Because we iterate levels in order, only the lowest level and thus simplest set of modifiers for each symbol is added.
+                        # However, if multiple keys produce the same symbol, only the first key in iteration order is added. Same for level_key_name and aliases below
+                        plover_key_to_keycode[key_for_level] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
-                    for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(level_key_name, []):
-                        if level_key_alias not in symbols:
-                            symbols[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+                    for level_key_alias in XKB_KEY_NAME_TO_ALIASES.get(key_name_for_level, []):
+                        if level_key_alias not in plover_key_to_keycode:
+                            plover_key_to_keycode[level_key_alias] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
-                    if level_key_name.startswith("XF86"):
-                        plover_key_name = level_key_name[4:].lower()
+                    if key_name_for_level.startswith("XF86"):
+                        plover_key_name = key_name_for_level[4:].lower()
                         # Add alias with "xf86" for XF86... keys to be consistent with X11 plover
-                        if plover_key_name not in symbols:
-                            symbols[plover_key_name] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+                        if plover_key_name not in plover_key_to_keycode:
+                            plover_key_to_keycode[plover_key_name] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
-                    level_key_name_lower = level_key_name.lower()
-                    if level_key_name_lower not in symbols:
-                        symbols[level_key_name_lower] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
+                    level_key_name_lower = key_name_for_level.lower()
+                    if level_key_name_lower not in plover_key_to_keycode:
+                        plover_key_to_keycode[level_key_name_lower] = KeyCodeInfo(key - XKB_TO_EV_KEYCODE_OFFSET, key_modifiers)
 
         except xkb.XKBInvalidKeycode:
             # Iter *should* return only valid, but still returns some invalid...
             pass
 
     # The "Linefeed" symbol (xkb symbol 0xff0a) has the key string "\n".
-    # If Linefeed appears before the enter/return key when iterating over keys in the keymap, "\n" will be mapped to Linefeed rather than enter.
+    # If Linefeed appears before the enter/return key when iterating over keys in the keymap (which is the case for qwerty), "\n" will be mapped to Linefeed rather than enter.
     # This ensures that "\n" is mapped to the enter/return key
-    if "return" in symbols:
-        symbols["\n"] = symbols["return"]
+    if "return" in plover_key_to_keycode:
+        plover_key_to_keycode["\n"] = plover_key_to_keycode["return"]
 
-    return symbols
+    return plover_key_to_keycode
 
 
 context = xkb.Context()

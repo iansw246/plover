@@ -94,9 +94,6 @@ def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
                 if not is_mod_active:
                     continue
 
-                keysyms = keymap.key_get_syms_by_level(keycode, layout, 0)
-                print("Modifier", keymap.mod_get_name(mod_index), "Keysyms:", keysyms, "Keycode:", keycode)
-
                 modifier_index_to_keycodes[mod_index].append(keycode)
             # Only consider the first active layout
             break

@@ -30,6 +30,8 @@ VALID_EV_KEYCODES: set[int] = set(util.find_ecodes_by_regex(r"KEY_.*")[1])
 
 WAYLAND_AUTO_LAYOUT_NAME = "wayland-auto"
 
+GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS = 5
+
 # Additional aliases for xkbcommon keysyms to match names in Plover dictionaries.
 # Keys beginning with "XF86" are handled as a special case during xkbcommon keymap processing.
 # For each xkbcommon keysyms, the lowercase of the symbol name is already added to the keymap by the code.
@@ -384,5 +386,6 @@ HANDLED_KEYCODE_TO_KEY = {
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
 if __name__ == "__main__":
-    symbols = get_wayland_keymap(5)
-    print("Symbols", symbols)
+    xkb_keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
+    plover_keymap = generate_plover_keymap_from_xkb_keymap(xkb_keymap)
+    print("Plover keymap", plover_keymap)

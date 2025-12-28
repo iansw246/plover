@@ -16,6 +16,7 @@ from psutil import process_iter
 
 from plover.oslayer.linux.keyboardlayout_wayland import (
     DEFAULT_LAYOUT,
+    GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS,
     HANDLED_KEYCODE_TO_KEY,
     LAYOUTS,
     WAYLAND_AUTO_LAYOUT_NAME,
@@ -53,7 +54,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
     def _update_layout(self, layout):
         if layout == WAYLAND_AUTO_LAYOUT_NAME:
             try:
-                keymap = get_wayland_keymap(5)
+                keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
                 modifier_index_to_keycode = get_modifier_keycodes(keymap)
                 modifier_keycodes = set(
                     keycode
@@ -175,7 +176,7 @@ class KeyboardCapture(Capture):
         self._ui = UInput(self._res)
         self._suppressed_keys = set()
 
-        keymap = get_wayland_keymap(5)
+        keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
         self._modifier_keycodes = set(
             xkb_keycode_to_ev_keycode(keycode)
             for keycodes in get_modifier_keycodes(keymap)

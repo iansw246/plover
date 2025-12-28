@@ -257,7 +257,6 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
                 raise RuntimeError("wl_seat was destroyed unexpectedly")
             elif id_num == KEYBOARD_ID:
                 raise RuntimeError("wl_keyboard was destroyed unexpectedly")
-            print(f"Deleted id: {id_num}")
         else:
             log.debug("Ignoring event for object %d, opcode %d", object_id, opcode)
 

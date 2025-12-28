@@ -16,8 +16,7 @@ from plover.misc import expand_path
 
 from plover_build_utils.testing import parametrize
 
-from ..py37compat import mock
-
+from unittest import mock
 
 INVALID_EXCEPTION = Exception("loading error")
 
@@ -107,7 +106,7 @@ class ModelTest(
             steno_dictionaries_from_state(state, self.dictionaries)
         )
         self.connections["dictionaries_loaded"](self.dictionaries)
-        loaded = [
+        [
             row
             for row, (enabled, icon, path) in enumerate(parse_state(state))
             if icon != "loading"
@@ -222,7 +221,11 @@ def model_test(monkeypatch, request):
     """.split():
         getattr(model, slot).connect(getattr(signals, slot))
     connections = dict(call.args for call in engine.signal_connect.mock_calls)
-    assert connections.keys() == {"config_changed", "dictionaries_loaded"}
+    assert connections.keys() == {
+        "config_changed",
+        "dictionaries_loaded",
+        "dictionary_state_changed",
+    }
     config.reset_mock()
     engine.reset_mock()
     # Test helper.

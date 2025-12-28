@@ -1,4 +1,7 @@
 # Configuration file for the Sphinx documentation builder.
+from pygments.lexer import RegexLexer, bygroups
+from pygments import token as t
+from sphinx.highlighting import lexers
 
 # -- Project information -----------------------------------------------------
 
@@ -6,7 +9,7 @@ project = "Plover"
 copyright = "Open Steno Project"
 author = copyright
 
-release = "5.0.0rc1"
+release = "5.1.0"
 version = release
 
 # -- General configuration ---------------------------------------------------
@@ -68,10 +71,6 @@ html_theme_options = {
     "light_logo": "dolores.svg",
     "dark_logo": "dolores.svg",
 }
-
-from pygments.lexer import RegexLexer, bygroups
-from pygments import token as t
-from sphinx.highlighting import lexers
 
 
 class RTFLexer(RegexLexer):

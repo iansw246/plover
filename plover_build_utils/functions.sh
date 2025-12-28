@@ -3,6 +3,9 @@
 opt_dry_run=0
 opt_timings=0
 
+# Default CI to false if not set
+: "${CI:=false}"
+
 python='false'
 cache_dir='.cache'
 wheels_cache="$cache_dir/wheels"
@@ -85,27 +88,70 @@ die()
   exit "$code"
 }
 
-run()
-{
-  if [ $opt_dry_run -eq 0 -a "x$CI" = "xtrue" ]
-  then
-    echo -n '::group::' 1>&2
+# Internal runner: first arg must be --normal, --quiet, or --stderr-only
+_run_impl() {
+  local mode="$1"; shift
+
+  if [ "$mode" != "--quiet" ]; then
+    if [ $opt_dry_run -eq 0 -a "x$CI" = "xtrue" ]; then
+      echo -n '::group::' 1>&2
+    fi
+
+    info "$(printf "%q " "$@")"
   fi
-  info "$(printf "%q " "$@")"
+
   [ $opt_dry_run -ne 0 ] && return
-  if [ $opt_timings -ne 0 ]
-  then
-    time "$@"
-    code=$?
+
+  if [ $opt_timings -ne 0 ]; then
+    case "$mode" in
+      --quiet)
+        { time "$@" >/dev/null 2>&1; }
+        code=$?
+        ;;
+      --stderr-only)
+        { time "$@" >/dev/null; } 2>&1
+        code=$?
+        ;;
+      *)
+        time "$@"
+        code=$?
+        ;;
+    esac
   else
-    "$@"
-    code=$?
+    case "$mode" in
+      --quiet)
+        "$@" >/dev/null 2>&1
+        code=$?
+        ;;
+      --stderr-only)
+        "$@" >/dev/null
+        code=$?
+        ;;
+      *)
+        "$@"
+        code=$?
+        ;;
+    esac
   fi
-  if [ "x$CI" = "xtrue" ]
-  then
-    echo "::endgroup::" 1>&2
+
+  if [ "$mode" != "--quiet" ]; then
+    if [ "x$CI" = "xtrue" ]; then
+      echo "::endgroup::" 1>&2
+    fi
   fi
   return $code
+}
+
+run()          { _run_impl --normal "$@"; }
+run_quiet()    { _run_impl --quiet  "$@"; }
+run_stderr()   { _run_impl --stderr-only "$@"; }
+
+require_env() {
+  local name=${1:?}
+  if [[ -z "${!name:-}" ]]; then
+    echo "❌ Missing required env: $name" >&2
+    exit 1
+  fi
 }
 
 run_eval()
@@ -193,6 +239,17 @@ osx_standalone_python()
   run rm -rf "$reloc_py_dir"
 }
 
+fetch_hidapi() {
+  local src_dir="$1" download_dir="$2"
+  local file_name="hidapi-${hidapi_version}.tar.gz"
+  local url="https://github.com/libusb/hidapi/archive/refs/tags/${file_name}"
+  run "$python" -m plover_build_utils.download "$url" "$hidapi_sha1" "$file_name" "$download_dir"
+  hidapi_tar="$download_dir/$file_name"
+  rm -rf "$src_dir"
+  mkdir -p "$src_dir"
+  tar -xzf "$hidapi_tar" -C "$src_dir" --strip-components=1
+}
+
 packaging_checks()
 {
   run rm -rf dist
@@ -277,5 +334,11 @@ git push origin "$tag"
 EOF
 }
 
-parse_opts args "$@"
-set -- "${args[@]}"
+# If this file is being executed directly (not sourced), parse options
+# This avoids running parse_opts during a simple source() from another
+# script where $@ may be empty and `set -u` is active, which can lead to
+# "unbound variable" errors when expanding arrays.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  parse_opts args "$@"
+  set -- "${args[@]}"
+fi

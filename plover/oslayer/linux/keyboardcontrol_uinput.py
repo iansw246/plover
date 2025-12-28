@@ -13,15 +13,15 @@ from evdev import (
     KeyEvent,
 )
 from psutil import process_iter
-from xkbcommon import xkb
 
-from plover.oslayer.linux.keyboardlayout_uinput import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, WaylandConnection, compute_modifier_keycodes, ev_keycode_to_xkb_keycode, generate_plover_keymap_from_xkb_keymap, get_wayland_keymap, xkb_keycode_to_ev_keycode
+from plover.oslayer.linux.keyboardlayout_wayland import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, get_modifier_keycodes, ev_keycode_to_xkb_keycode, generate_plover_keymap_from_xkb_keymap, get_wayland_keymap, xkb_keycode_to_ev_keycode
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo
 from plover import log
 
 class KeyboardEmulation(GenericKeyboardEmulation):
+    # Map of Plover key name to EV keycode and modifiers
     _key_to_keycodeinfo: dict[str, KeyCodeInfo]
 
     def __init__(self):
@@ -35,35 +35,27 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             log.warning(
                 "It appears that an input method, such as ibus or fcitx5, is not running on your system. Without this, some text may not be output correctly."
             )
-        # Set initial default layout so _get_key() works before Wayland connection is established
-        self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
-        
+
+        self._key_to_keycodeinfo = {}
 
     def _update_layout(self, layout):
         if layout == WAYLAND_AUTO_LAYOUT_NAME:
             try:
                 keymap = get_wayland_keymap(5)
-                modifier_index_to_keycode = compute_modifier_keycodes(keymap)
+                modifier_index_to_keycode = get_modifier_keycodes(keymap)
                 modifier_keycodes = set(keycode for keycodes in modifier_index_to_keycode for keycode in keycodes)
-                print("Modifier index to keycode:", modifier_index_to_keycode)
+                log.debug("Modifier index to keycode: %s", modifier_index_to_keycode)
 
                 self._key_to_keycodeinfo = generate_plover_keymap_from_xkb_keymap(keymap, modifier_index_to_keycode)
-                # TODO: Determine if this every happens and if it's necessary
-                # Verify that no modifier has its own modifiers in the Wayland keymap
+                # Verify that no modifier requires modifiers to be pressed in the generated keymap
                 for key_info in self._key_to_keycodeinfo.values():
                     if ev_keycode_to_xkb_keycode(key_info.keycode) in modifier_keycodes and len(key_info.modifiers) > 0:
                         log.warning(f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior.")
-                print("Wayland keymap:", self._key_to_keycodeinfo)
+                log.debug("Retrieved Wayland keymap: %s", self._key_to_keycodeinfo)
             except Exception as e:
-                log.error(f"Failed to get Wayland keymap: {e}. Using default layout.")
+                log.error(f"Failed to get Wayland keymap: {e}. Using default layout {DEFAULT_LAYOUT}.")
                 self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
             return
-        else:
-            if self._wayland_connection_thread is not None:
-                self._wayland_connection.shutdown()
-                
-            self._wayland_connection_thread = None
-            self._wayland_connection = WaylandConnection()
 
         if not layout in LAYOUTS:
             log.warning(f"Layout {layout} not supported. Falling back to qwerty.")
@@ -98,7 +90,6 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def _send_char(self, char):
         (base, mods) = self._get_key(char)
-        print("Key", char, "->", base, mods)
 
         # Key can be sent with a key combination
         if base is not None:
@@ -126,11 +117,9 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
     def send_key_combination(self, combo):
         # https://plover.readthedocs.io/en/latest/api/key_combo.html#module-plover.key_combo
-        print("Sending key combination: " + combo)
         key_events = parse_key_combo(combo)
 
         for key, pressed in self.with_delay(key_events):
-            print("Key: " + key)
             (base, _) = self._get_key(key)
 
             if base is not None:
@@ -144,10 +133,10 @@ class KeyboardCapture(Capture):
     # Pipes to signal `_run` thread to stop
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
+    # EV keycodes of modifier keys
     _modifier_keycodes: set[int]
 
     def __init__(self):
-        print("init")
         super().__init__()
         self._devices = self._get_devices()
 
@@ -161,9 +150,8 @@ class KeyboardCapture(Capture):
         self._suppressed_keys = set()
 
         keymap = get_wayland_keymap(5)
-        self._modifier_keycodes = set(xkb_keycode_to_ev_keycode(keycode) for keycodes in compute_modifier_keycodes(keymap) for keycode in keycodes)
-        print("Modifier keycodes:", self._modifier_keycodes)
-
+        self._modifier_keycodes = set(xkb_keycode_to_ev_keycode(keycode) for keycodes in get_modifier_keycodes(keymap) for keycode in keycodes)
+        log.debug("Modifier keycodes: %s", self._modifier_keycodes)
 
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
@@ -255,7 +243,6 @@ class KeyboardCapture(Capture):
         It does add a little bit of delay, but that is not noticeable.
         """
         self._suppressed_keys = set(suppressed_keys)
-        print("Suppressed keys", suppressed_keys)
 
     def _run(self):
         keys_pressed_with_modifier: set[int] = set()
@@ -270,7 +257,6 @@ class KeyboardCapture(Capture):
                 # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
                 return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
             if event.code in self._modifier_keycodes:
-                print("Modified pressed:", event.code)
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)

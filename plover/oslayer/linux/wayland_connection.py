@@ -29,20 +29,25 @@ OPCODE_WL_KEYBOARD_KEYMAP = 0
 
 WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 = 1
 
+
 def round_up_power_of_two(value: int, multiple: int):
     """Round `value` up to the nearest multiple of `multiple`.
     `multiple` must be positive and a power of 2"""
-    assert (multiple > 0) and ((multiple & (multiple - 1)) == 0), "Multiple must be positive and a power of two"
+    assert (multiple > 0) and ((multiple & (multiple - 1)) == 0), (
+        "Multiple must be positive and a power of two"
+    )
     return (value + multiple - 1) & ~(multiple - 1)
+
 
 class WaylandConnection:
     """Context manager for connecting to the Wayland server on the default socket path.
-    
+
     Useful references:
     - https://wayland-book.com/
     - https://wayland.freedesktop.org/docs/html/ch04.html#sect-Protocol-Wire-Format
     - https://wayland.app/protocols/wayland
     """
+
     fd_queue: collections.deque[int]
     _wayland_socket: socket.socket
     _shutdown_pipe_read: int
@@ -79,7 +84,7 @@ class WaylandConnection:
 
     def recv_message(self) -> tuple[int, int, int, bytearray]:
         """Receive an event from the Wayland server. Blocks until a complete message is received.
-        
+
         Returns:
             A tuple of (object_id, length, opcode, event_data_bytes)
 
@@ -89,13 +94,17 @@ class WaylandConnection:
         # In each message, we only need to receive at most one fd
         # TODO: Unless messages with more delay when we received the keymap event fds?
         MAX_FD_COUNT = 1
-        event_header_bytes, fds = self._recv_fds_exact(WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
+        event_header_bytes, fds = self._recv_fds_exact(
+            WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT
+        )
         self.fd_queue.extend(fds)
         object_id, length_and_opcode = struct.unpack("=II", event_header_bytes)
         length = length_and_opcode >> 16
         assert length % 4 == 0, "Length of message must be a multiple of 4."
         opcode = length_and_opcode & 0xFFFF
-        event_data_bytes, fds = self._recv_fds_exact(length - WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT)
+        event_data_bytes, fds = self._recv_fds_exact(
+            length - WAYLAND_MESSAGE_HEADER_SIZE_BYTES, MAX_FD_COUNT
+        )
         self.fd_queue.extend(fds)
         return object_id, length, opcode, event_data_bytes
 
@@ -143,11 +152,20 @@ class WaylandConnection:
                 if key.fileobj == self._shutdown_pipe_read:
                     raise InterruptedError()
                 # Based on Python3 socket.recvmsg docs (https://docs.python.org/3/library/socket.html#socket.socket.recvmsg)
-                n, ancdata, flags, addr = self._wayland_socket.recvmsg_into([buffer_view], socket.CMSG_LEN(fd_count * fds.itemsize))
+                n, ancdata, flags, addr = self._wayland_socket.recvmsg_into(
+                    [buffer_view], socket.CMSG_LEN(fd_count * fds.itemsize)
+                )
                 for cmsg_level, cmsg_type, cmsg_data in ancdata:
-                    if cmsg_level == socket.SOL_SOCKET and cmsg_type == socket.SCM_RIGHTS:
+                    if (
+                        cmsg_level == socket.SOL_SOCKET
+                        and cmsg_type == socket.SCM_RIGHTS
+                    ):
                         # Append data, ignoring any truncated integers at the end.
-                        fds.frombytes(cmsg_data[:len(cmsg_data) - (len(cmsg_data) % fds.itemsize)])
+                        fds.frombytes(
+                            cmsg_data[
+                                : len(cmsg_data) - (len(cmsg_data) % fds.itemsize)
+                            ]
+                        )
                 # Advance write position in buffer
                 buffer_view = buffer_view[n:]
                 length -= n
@@ -160,20 +178,24 @@ class WaylandConnection:
 def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
     """Get the keymap from the Wayland server.
     See https://wayland.app/protocols/wayland for the opcodes and arguments
-    
+
     Returns a tuple of (keymap_fd, keymap_size) as returned by the Wayland server.
     """
     # wl_display::get_registry
     # display id: DISPLAY_ID
     # opcode: 1
     # new id for registry: REGISTRY_ID
-    connection.send_message(DISPLAY_ID, OPCODE_WL_DISPLAY_GET_REGISTRY, struct.pack("=I", REGISTRY_ID))
+    connection.send_message(
+        DISPLAY_ID, OPCODE_WL_DISPLAY_GET_REGISTRY, struct.pack("=I", REGISTRY_ID)
+    )
 
     # wl_display::sync
     # display id: DISPLAY_ID
     # opcode: 0
     # new_id for callback: SYNC_ID
-    connection.send_message(DISPLAY_ID, OPCODE_WL_DISPLAY_SYNC, struct.pack("=I", SYNC_ID))
+    connection.send_message(
+        DISPLAY_ID, OPCODE_WL_DISPLAY_SYNC, struct.pack("=I", SYNC_ID)
+    )
 
     # Read all wl_display::get_registry events
     while True:
@@ -186,10 +208,14 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
             # wl_registry::global
             name, interface_length = struct.unpack("=II", event_data_bytes[:8])
             # -1 to skip null terminator
-            interface = event_data_bytes[8:8 + interface_length - 1].decode("utf-8")
+            interface = event_data_bytes[8 : 8 + interface_length - 1].decode("utf-8")
             version_start_index = round_up_power_of_two(8 + interface_length, 4)
-            version = struct.unpack("=I", event_data_bytes[version_start_index:version_start_index + 4])[0]
-            log.debug("Global: name=%d, interface=%s, version=%d", name, interface, version)
+            version = struct.unpack(
+                "=I", event_data_bytes[version_start_index : version_start_index + 4]
+            )[0]
+            log.debug(
+                "Global: name=%d, interface=%s, version=%d", name, interface, version
+            )
 
             if interface == "wl_seat":
                 seat_name = event_data_bytes
@@ -209,7 +235,9 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
         if object_id == SEAT_ID and opcode == OPCODE_WL_SEAT_CAPABILITIES:
             # wl_seat::capabilities
             if length != WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4:
-                raise RuntimeError(f"Expected wl_seat::capabilities message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4} bytes, got {length}")
+                raise RuntimeError(
+                    f"Expected wl_seat::capabilities message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4} bytes, got {length}"
+                )
 
             capabilities = struct.unpack("=I", event_data_bytes[:4])[0]
             log.debug("wl_seat capabilities: %s", capabilities)
@@ -221,7 +249,9 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
         elif object_id == DISPLAY_ID and opcode == OPCODE_WL_DISPLAY_DELETE_ID:
             # wl_display::delete_id
             if length != WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4:
-                raise RuntimeError(f"Expected wl_display::delete_id message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4} bytes, got {length}")
+                raise RuntimeError(
+                    f"Expected wl_display::delete_id message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 4} bytes, got {length}"
+                )
             id_num = struct.unpack("=I", event_data_bytes)[0]
             if id_num == SEAT_ID:
                 raise RuntimeError("wl_seat was destroyed unexpectedly")
@@ -243,7 +273,9 @@ def wayland_keymap_event_loop(connection: WaylandConnection) -> tuple[int, int]:
         if object_id == KEYBOARD_ID and opcode == OPCODE_WL_KEYBOARD_KEYMAP:
             # wl_keyboard::keymap
             if length != WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 8:
-                raise RuntimeError(f"Expected wl_keyboard::keymap message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 8} bytes, got {length}")
+                raise RuntimeError(
+                    f"Expected wl_keyboard::keymap message to be {WAYLAND_MESSAGE_HEADER_SIZE_BYTES + 8} bytes, got {length}"
+                )
 
             keymap_format, keymap_size = struct.unpack("=II", event_data_bytes)
             if keymap_format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1:

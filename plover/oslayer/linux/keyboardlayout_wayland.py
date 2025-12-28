@@ -9,13 +9,18 @@ import threading
 from xkbcommon import xkb
 from evdev import ecodes as e, util
 
-from plover.oslayer.linux.wayland_connection import WaylandConnection, wayland_keymap_event_loop
+from plover.oslayer.linux.wayland_connection import (
+    WaylandConnection,
+    wayland_keymap_event_loop,
+)
+
 
 @dataclass
 class KeyCodeInfo:
     keycode: int
     # Other keycodes that must be held down with the keycode to send this key
     modifiers: Sequence[int] = ()
+
 
 # Difference between xkbcommon keycodes and Linux EV keycodes.
 # Subtract this value from xkbcommon keycodes to get Linux EV keycodes.
@@ -50,11 +55,14 @@ XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "KP_Delete": ["kp_dot", "kp_decimal"],
 }
 
+
 def xkb_keycode_to_ev_keycode(keycode: int):
     return keycode - XKB_TO_EV_KEYCODE_OFFSET
 
+
 def ev_keycode_to_xkb_keycode(keycode: int):
     return keycode + XKB_TO_EV_KEYCODE_OFFSET
+
 
 def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
     """
@@ -74,9 +82,9 @@ def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
         keyboard_state = xkb.KeyboardState(keymap)
         key_state = keyboard_state.update_key(keycode, xkb.KeyDirection.XKB_KEY_DOWN)
         # Check if pressing the key depresses a modifier
-        is_key_mod = (
-            (key_state & xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
-            and not ((key_state & xkb.StateComponent.XKB_STATE_MODS_LOCKED) or (key_state & xkb.StateComponent.XKB_STATE_MODS_LATCHED))
+        is_key_mod = (key_state & xkb.StateComponent.XKB_STATE_MODS_DEPRESSED) and not (
+            (key_state & xkb.StateComponent.XKB_STATE_MODS_LOCKED)
+            or (key_state & xkb.StateComponent.XKB_STATE_MODS_LATCHED)
         )
         if not is_key_mod:
             continue
@@ -84,13 +92,17 @@ def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
         num_layouts = keymap.num_layouts_for_key(keycode)
 
         for layout in range(0, num_layouts):
-            layout_is_active = keyboard_state.layout_index_is_active(layout, xkb.StateComponent.XKB_STATE_LAYOUT_EFFECTIVE)
+            layout_is_active = keyboard_state.layout_index_is_active(
+                layout, xkb.StateComponent.XKB_STATE_LAYOUT_EFFECTIVE
+            )
 
             if not layout_is_active:
                 continue
 
             for mod_index in range(num_mods):
-                is_mod_active = keyboard_state.mod_index_is_active(mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED)
+                is_mod_active = keyboard_state.mod_index_is_active(
+                    mod_index, xkb.StateComponent.XKB_STATE_MODS_DEPRESSED
+                )
                 if not is_mod_active:
                     continue
 
@@ -100,6 +112,7 @@ def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
 
     return modifier_index_to_keycodes
 
+
 @contextlib.contextmanager
 def fd_context(fd: int):
     try:
@@ -107,12 +120,15 @@ def fd_context(fd: int):
     finally:
         os.close(fd)
 
+
 def get_wayland_keymap(timeout: float) -> xkb.Keymap:
     """Get the current keymap from the default Wayland server"""
     with WaylandConnection() as connection:
         done = False
+
         def timeout_thread_function():
             import time
+
             time.sleep(timeout)
             if not done:
                 connection.shutdown()
@@ -127,12 +143,17 @@ def get_wayland_keymap(timeout: float) -> xkb.Keymap:
             raise TimeoutError("Timeout retrieving keymap from Wayland")
     with (
         fd_context(keymap_fd) as keymap_fd,
-        mmap.mmap(keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ) as keymap_file,
+        mmap.mmap(
+            keymap_fd, keymap_size, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ
+        ) as keymap_file,
     ):
         xkb_context = xkb.Context()
         return xkb_context.keymap_new_from_file(keymap_file)
 
-def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]] | None = None) -> dict[str, KeyCodeInfo]:
+
+def generate_plover_keymap_from_xkb_keymap(
+    keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]] | None = None
+) -> dict[str, KeyCodeInfo]:
     """
     Generate a mapping of Plover key names (key names used in dictionary entries) to `KeyCodeInfo` objects.
     `modifier_index_to_keycode` is optional and should be the result of `compute_modifier_keycodes`. If it is not provided, `compute_modifier_keycodes` will be called to compute it. It is a parameter to avoid recomputing the modifier keycodes if they are needed multiple times.
@@ -152,9 +173,19 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, modifier_index_to
             level_count = keymap.num_levels_for_key(xkb_keycode, layout_index)
 
             for level in range(level_count):
-                key_syms_for_level = keymap.key_get_syms_by_level(xkb_keycode, layout_index, level)
+                key_syms_for_level = keymap.key_get_syms_by_level(
+                    xkb_keycode, layout_index, level
+                )
                 for key_sym in key_syms_for_level:
-                    add_xkb_keysym_to_plover_keymap(xkb_keycode, key_sym, level, keymap, plover_key_to_keycode, layout_index, modifier_index_to_keycode)
+                    add_xkb_keysym_to_plover_keymap(
+                        xkb_keycode,
+                        key_sym,
+                        level,
+                        keymap,
+                        plover_key_to_keycode,
+                        layout_index,
+                        modifier_index_to_keycode,
+                    )
 
         except xkb.XKBInvalidKeycode:
             # Iter *should* return only valid, but still returns some invalid...
@@ -168,35 +199,63 @@ def generate_plover_keymap_from_xkb_keymap(keymap: xkb.Keymap, modifier_index_to
 
     return plover_key_to_keycode
 
-def add_xkb_keysym_to_plover_keymap(xkb_keycode: int, xkb_keysym: int, level: int, keymap: xkb.Keymap, plover_key_to_keycode: dict[str, KeyCodeInfo], layout_index: int, modifier_index_to_keycode: list[list[int]]):
+
+def add_xkb_keysym_to_plover_keymap(
+    xkb_keycode: int,
+    xkb_keysym: int,
+    level: int,
+    keymap: xkb.Keymap,
+    plover_key_to_keycode: dict[str, KeyCodeInfo],
+    layout_index: int,
+    modifier_index_to_keycode: list[list[int]],
+):
     keysym_name = xkb.keysym_get_name(xkb_keysym)
     keysym_string = xkb.keysym_to_string(xkb_keysym)
 
-    key_modifiers = get_modifiers_for_key_sym(keymap, xkb_keycode, layout_index, level, modifier_index_to_keycode)
+    key_modifiers = get_modifiers_for_key_sym(
+        keymap, xkb_keycode, layout_index, level, modifier_index_to_keycode
+    )
 
     if keysym_string is not None and keysym_string not in plover_key_to_keycode:
         # Because we iterate levels in order, the lowest level and thus simplest set of modifiers for each symbol is added first.
         # If multiple keys produce the same symbol, only add the first key in iteration order. Same for level_key_name and aliases below
-        plover_key_to_keycode[keysym_string] = KeyCodeInfo(xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers)
+        plover_key_to_keycode[keysym_string] = KeyCodeInfo(
+            xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
+        )
 
     for key_alias in XKB_KEY_NAME_TO_ALIASES.get(keysym_name, []):
         if key_alias not in plover_key_to_keycode:
-            plover_key_to_keycode[key_alias] = KeyCodeInfo(xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers)
+            plover_key_to_keycode[key_alias] = KeyCodeInfo(
+                xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
+            )
 
     if keysym_name.startswith("XF86"):
         plover_key_name = keysym_name[4:].lower()
         # Add alias with "xf86" for XF86... keys to be consistent with X11 plover
         if plover_key_name not in plover_key_to_keycode:
-            plover_key_to_keycode[plover_key_name] = KeyCodeInfo(xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers)
+            plover_key_to_keycode[plover_key_name] = KeyCodeInfo(
+                xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
+            )
 
     level_key_name_lower = keysym_name.lower()
     if level_key_name_lower not in plover_key_to_keycode:
-        plover_key_to_keycode[level_key_name_lower] = KeyCodeInfo(xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers)
+        plover_key_to_keycode[level_key_name_lower] = KeyCodeInfo(
+            xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
+        )
 
-def get_modifiers_for_key_sym(keymap: xkb.Keymap, xkb_keycode: int, layout_index: int, level: int, modifier_index_to_keycode: list[list[int]]):
+
+def get_modifiers_for_key_sym(
+    keymap: xkb.Keymap,
+    xkb_keycode: int,
+    layout_index: int,
+    level: int,
+    modifier_index_to_keycode: list[list[int]],
+):
     """Get one set of modifiers that are pressed to obtain the given key and level.
     If multiple sets of modifiers produce the same key and level, an arbitrary one is returned."""
-    modifier_masks_for_level = keymap.key_get_mods_for_level(xkb_keycode, layout_index, level)
+    modifier_masks_for_level = keymap.key_get_mods_for_level(
+        xkb_keycode, layout_index, level
+    )
     key_modifiers: list[int] = []
     # Identify sets of modifiers pressed to obtain the given key and level.
     # Each `mask` is a bitfield of modifiers pressed
@@ -217,14 +276,25 @@ def get_modifiers_for_key_sym(keymap: xkb.Keymap, xkb_keycode: int, layout_index
             break
     return key_modifiers
 
+
 context = xkb.Context()
 
 LAYOUTS = {
-    "qwerty": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us")),
-    "qwertz": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="de")),
-    "dvorak": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us", variant="dvorak")),
-    "colemak": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us", variant="colemak")),
-    "colemak-dh": generate_plover_keymap_from_xkb_keymap(context.keymap_new_from_names(layout="us", variant="colemak_dh")),
+    "qwerty": generate_plover_keymap_from_xkb_keymap(
+        context.keymap_new_from_names(layout="us")
+    ),
+    "qwertz": generate_plover_keymap_from_xkb_keymap(
+        context.keymap_new_from_names(layout="de")
+    ),
+    "dvorak": generate_plover_keymap_from_xkb_keymap(
+        context.keymap_new_from_names(layout="us", variant="dvorak")
+    ),
+    "colemak": generate_plover_keymap_from_xkb_keymap(
+        context.keymap_new_from_names(layout="us", variant="colemak")
+    ),
+    "colemak-dh": generate_plover_keymap_from_xkb_keymap(
+        context.keymap_new_from_names(layout="us", variant="colemak_dh")
+    ),
 }
 
 del context

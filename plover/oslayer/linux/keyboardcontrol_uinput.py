@@ -14,11 +14,23 @@ from evdev import (
 )
 from psutil import process_iter
 
-from plover.oslayer.linux.keyboardlayout_wayland import DEFAULT_LAYOUT, HANDLED_KEYCODE_TO_KEY, LAYOUTS, WAYLAND_AUTO_LAYOUT_NAME, KeyCodeInfo, get_modifier_keycodes, ev_keycode_to_xkb_keycode, generate_plover_keymap_from_xkb_keymap, get_wayland_keymap, xkb_keycode_to_ev_keycode
+from plover.oslayer.linux.keyboardlayout_wayland import (
+    DEFAULT_LAYOUT,
+    HANDLED_KEYCODE_TO_KEY,
+    LAYOUTS,
+    WAYLAND_AUTO_LAYOUT_NAME,
+    KeyCodeInfo,
+    get_modifier_keycodes,
+    ev_keycode_to_xkb_keycode,
+    generate_plover_keymap_from_xkb_keymap,
+    get_wayland_keymap,
+    xkb_keycode_to_ev_keycode,
+)
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo
 from plover import log
+
 
 class KeyboardEmulation(GenericKeyboardEmulation):
     # Map of Plover key name to EV keycode and modifiers
@@ -43,17 +55,30 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             try:
                 keymap = get_wayland_keymap(5)
                 modifier_index_to_keycode = get_modifier_keycodes(keymap)
-                modifier_keycodes = set(keycode for keycodes in modifier_index_to_keycode for keycode in keycodes)
+                modifier_keycodes = set(
+                    keycode
+                    for keycodes in modifier_index_to_keycode
+                    for keycode in keycodes
+                )
                 log.debug("Modifier index to keycode: %s", modifier_index_to_keycode)
 
-                self._key_to_keycodeinfo = generate_plover_keymap_from_xkb_keymap(keymap, modifier_index_to_keycode)
+                self._key_to_keycodeinfo = generate_plover_keymap_from_xkb_keymap(
+                    keymap, modifier_index_to_keycode
+                )
                 # Verify that no modifier requires modifiers to be pressed in the generated keymap
                 for key_info in self._key_to_keycodeinfo.values():
-                    if ev_keycode_to_xkb_keycode(key_info.keycode) in modifier_keycodes and len(key_info.modifiers) > 0:
-                        log.warning(f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior.")
+                    if (
+                        ev_keycode_to_xkb_keycode(key_info.keycode) in modifier_keycodes
+                        and len(key_info.modifiers) > 0
+                    ):
+                        log.warning(
+                            f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior."
+                        )
                 log.debug("Retrieved Wayland keymap: %s", self._key_to_keycodeinfo)
             except Exception as e:
-                log.error(f"Failed to get Wayland keymap: {e}. Using default layout {DEFAULT_LAYOUT}.")
+                log.error(
+                    f"Failed to get Wayland keymap: {e}. Using default layout {DEFAULT_LAYOUT}."
+                )
                 self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
             return
 
@@ -127,6 +152,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             else:
                 log.warning("Key " + key + " is not valid!")
 
+
 class KeyboardCapture(Capture):
     _selector: selectors.DefaultSelector
     _device_thread: threading.Thread | None
@@ -150,7 +176,11 @@ class KeyboardCapture(Capture):
         self._suppressed_keys = set()
 
         keymap = get_wayland_keymap(5)
-        self._modifier_keycodes = set(xkb_keycode_to_ev_keycode(keycode) for keycodes in get_modifier_keycodes(keymap) for keycode in keycodes)
+        self._modifier_keycodes = set(
+            xkb_keycode_to_ev_keycode(keycode)
+            for keycodes in get_modifier_keycodes(keymap)
+            for keycode in keycodes
+        )
         log.debug("Modifier keycodes: %s", self._modifier_keycodes)
 
     def _get_devices(self):

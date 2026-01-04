@@ -14,6 +14,7 @@ from evdev import (
 )
 from psutil import process_iter
 
+from plover.oslayer.linux.display_server import DISPLAY_SERVER
 from plover.oslayer.linux.keyboardlayout_wayland import (
     DEFAULT_LAYOUT,
     GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS,
@@ -32,6 +33,17 @@ from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo
 from plover import log
 
+# Default EV keycodes of keys considered modifiers when 
+DEFAULT_MODIFIER_KEY_CODES: set[int] = {
+    e.KEY_LEFTSHIFT,
+    e.KEY_RIGHTSHIFT,
+    e.KEY_LEFTCTRL,
+    e.KEY_RIGHTCTRL,
+    e.KEY_LEFTALT,
+    e.KEY_RIGHTALT,
+    e.KEY_LEFTMETA,
+    e.KEY_RIGHTMETA,
+}
 
 class KeyboardEmulation(GenericKeyboardEmulation):
     # Map of Plover key name to EV keycode and modifiers
@@ -40,8 +52,8 @@ class KeyboardEmulation(GenericKeyboardEmulation):
     def __init__(self):
         super().__init__()
         # Initialize UInput with all keys available
-        self._res = util.find_ecodes_by_regex(r"KEY_.*")
-        self._ui = UInput(self._res)
+        res = util.find_ecodes_by_regex(r"KEY_.*")
+        self._ui = UInput(res)
 
         # Check that ibus or fcitx5 is running
         if not any(p.name() in ["ibus-daemon", "fcitx5"] for p in process_iter()):
@@ -153,7 +165,6 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             else:
                 log.warning("Key " + key + " is not valid!")
 
-
 class KeyboardCapture(Capture):
     _selector: selectors.DefaultSelector
     _device_thread: threading.Thread | None
@@ -172,16 +183,19 @@ class KeyboardCapture(Capture):
         self._device_thread_read_pipe = None
         self._device_thread_write_pipe = None
 
-        self._res = util.find_ecodes_by_regex(r"KEY_.*")
-        self._ui = UInput(self._res)
+        res = util.find_ecodes_by_regex(r"KEY_.*")
+        self._ui = UInput(res)
         self._suppressed_keys = set()
 
-        keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
-        self._modifier_keycodes = set(
-            xkb_keycode_to_ev_keycode(keycode)
-            for keycodes in get_modifier_keycodes(keymap)
-            for keycode in keycodes
-        )
+        if DISPLAY_SERVER == "wayland":
+            keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
+            self._modifier_keycodes = set(
+                xkb_keycode_to_ev_keycode(keycode)
+                for keycodes in get_modifier_keycodes(keymap)
+                for keycode in keycodes
+            )
+        else:
+            self._modifier_keycodes = DEFAULT_MODIFIER_KEY_CODES
         log.debug("Modifier keycodes: %s", self._modifier_keycodes)
 
     def _get_devices(self):

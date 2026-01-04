@@ -1,7 +1,6 @@
 import threading
 import os
 import selectors
-from typing import Any
 
 from evdev import (
     UInput,
@@ -33,7 +32,8 @@ from plover.machine.keyboard_capture import Capture
 from plover.key_combo import parse_key_combo
 from plover import log
 
-# Default EV keycodes of keys considered modifiers when 
+# EV keycodes of keys considered modifiers when not able to automatically be
+# determined from the keymap.
 DEFAULT_MODIFIER_KEY_CODES: set[int] = {
     e.KEY_LEFTSHIFT,
     e.KEY_RIGHTSHIFT,
@@ -44,6 +44,7 @@ DEFAULT_MODIFIER_KEY_CODES: set[int] = {
     e.KEY_LEFTMETA,
     e.KEY_RIGHTMETA,
 }
+
 
 class KeyboardEmulation(GenericKeyboardEmulation):
     # Map of Plover key name to EV keycode and modifiers
@@ -165,6 +166,7 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             else:
                 log.warning("Key " + key + " is not valid!")
 
+
 class KeyboardCapture(Capture):
     _selector: selectors.DefaultSelector
     _device_thread: threading.Thread | None
@@ -187,6 +189,7 @@ class KeyboardCapture(Capture):
         self._ui = UInput(res)
         self._suppressed_keys = set()
 
+        # TODO: Decide whether to add configuration for whether to use Wayland modifier detection
         if DISPLAY_SERVER == "wayland":
             keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
             xkb_modifier_keycodes = get_modifier_keycodes(keymap)
@@ -296,11 +299,14 @@ class KeyboardCapture(Capture):
 
         def _parse_key_event(event: InputEvent) -> tuple[str | None, bool]:
             """
+            Processes an InputEvent to determine which key Plover should receive
+            and whether the event should be suppressed.
+            Considers pressed modifiers and Plover's suppressed keys.
             Returns a tuple of (key_to_send_to_plover, suppress)
             """
             if not self._suppressed_keys:
                 # No keys are suppressed
-                # Always send to plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHRO*L)
+                # Always send to Plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHROLG)
                 return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
             if event.code in self._modifier_keycodes:
                 # Can't use if-else because there is a third case: key_hold

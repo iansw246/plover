@@ -189,9 +189,10 @@ class KeyboardCapture(Capture):
 
         if DISPLAY_SERVER == "wayland":
             keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
+            xkb_modifier_keycodes = get_modifier_keycodes(keymap)
             self._modifier_keycodes = set(
                 xkb_keycode_to_ev_keycode(keycode)
-                for keycodes in get_modifier_keycodes(keymap)
+                for keycodes in xkb_modifier_keycodes
                 for keycode in keycodes
             )
         else:

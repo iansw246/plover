@@ -21,6 +21,7 @@ from plover.oslayer.linux.keyboardlayout_wayland import (
     LAYOUTS,
     WAYLAND_AUTO_LAYOUT_NAME,
     KeyCodeInfo,
+    generate_plover_keymap_from_xkb_keymap_and_modifiers,
     get_modifier_keycodes,
     ev_keycode_to_xkb_keycode,
     generate_plover_keymap_from_xkb_keymap,
@@ -49,6 +50,7 @@ DEFAULT_MODIFIER_KEY_CODES: set[int] = {
 class KeyboardEmulation(GenericKeyboardEmulation):
     # Map of Plover key name to EV keycode and modifiers
     _key_to_keycodeinfo: dict[str, KeyCodeInfo]
+    _can_send_unicode: bool = True
 
     def __init__(self):
         super().__init__()
@@ -76,8 +78,10 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                 )
                 log.debug("Modifier index to keycode: %s", modifier_index_to_keycode)
 
-                self._key_to_keycodeinfo = generate_plover_keymap_from_xkb_keymap(
-                    keymap, modifier_index_to_keycode
+                self._key_to_keycodeinfo = (
+                    generate_plover_keymap_from_xkb_keymap_and_modifiers(
+                        keymap, modifier_index_to_keycode
+                    )
                 )
                 # Verify that no modifier requires modifiers to be pressed in the generated keymap
                 for key_info in self._key_to_keycodeinfo.values():
@@ -94,6 +98,12 @@ class KeyboardEmulation(GenericKeyboardEmulation):
                     f"Failed to get Wayland keymap: {e}. Using default layout {DEFAULT_LAYOUT}."
                 )
                 self._key_to_keycodeinfo = LAYOUTS[DEFAULT_LAYOUT]
+
+            self._can_send_unicode = self._verify_can_send_unicode_key_combo()
+            if not self._can_send_unicode:
+                log.warning(
+                    "At least one key in Ctrl+Shift+U is not available in the current keymap. Unicode input will not be available for special characters not in the keymap."
+                )
             return
 
         if layout not in LAYOUTS:
@@ -140,11 +150,28 @@ class KeyboardEmulation(GenericKeyboardEmulation):
             for mod in mods:
                 self._press_key(mod, False)
 
-        # Key press can not be emulated - send unicode symbol instead
-        else:
+        # Key press can not be emulated - send unicode symbol instead.
+        elif self._can_send_unicode:
+            # This check is needed in case the keymap layout (somehow) doesn't have ctrl+shift+u mapped, which
+            # would cause a infinite loop trying to send one of those keys using the Unicode input.
+
             # Convert to hex and remove leading "0x"
             unicode_hex = hex(ord(char))[2:]
             self._send_unicode(unicode_hex)
+        else:
+            log.warning(
+                f"Cannot send unicode character '{char}' - unicode input not available"
+            )
+
+    def _verify_can_send_unicode_key_combo(self) -> bool:
+        """Make sure the Unicode starter key combo is mapped (ctrl+shift+u)."""
+        if not self._get_key("control_l")[0]:
+            return False
+        if not self._get_key("shift")[0]:
+            return False
+        if not self._get_key("u")[0]:
+            return False
+        return True
 
     def send_string(self, string):
         for key in self.with_delay(list(string)):
@@ -299,7 +326,7 @@ class KeyboardCapture(Capture):
 
         def _parse_key_event(event: InputEvent) -> tuple[str | None, bool]:
             """
-            Processes an InputEvent to determine which key Plover should receive
+            Determine which key Plover should receive due to this event
             and whether the event should be suppressed.
             Considers pressed modifiers and Plover's suppressed keys.
             Returns a tuple of (key_to_send_to_plover, suppress)

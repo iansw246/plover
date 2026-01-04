@@ -153,25 +153,23 @@ def get_wayland_keymap(timeout: float) -> xkb.Keymap:
         return xkb_context.keymap_new_from_file(keymap_file)
 
 
-def generate_plover_keymap_from_xkb_keymap(
-    keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]] | None = None
+def generate_plover_keymap_from_xkb_keymap_and_modifiers(
+    keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]]
 ) -> dict[str, KeyCodeInfo]:
     """
-    Generate a mapping of Plover key names (key names used in dictionary entries) to `KeyCodeInfo` objects.
-    `modifier_index_to_keycode` is optional and should be the result of `compute_modifier_keycodes`. If it is not provided, `compute_modifier_keycodes` will be called to compute it. It is a parameter to avoid recomputing the modifier keycodes if they are needed multiple times.
+    Generate a mapping of Plover key names (key names used in Plover dictionary entries) to `KeyCodeInfo`.
+    `modifier_index_to_keycode` should be the result of `get_modifier_keycodes`.
+    This is a parameter to avoid recomputing the modifier keycodes if they are needed multiple times.
     """
-    if modifier_index_to_keycode is None:
-        modifier_index_to_keycode = get_modifier_keycodes(keymap)
-    # The following code in this function was based off of the now-removed `oslayer/linux/xkb_symbols.py` (https://github.com/openstenoproject/plover/blob/18aaf5174a0feaa5b4e3fea2fbce72bcc1d9f561/plover/oslayer/linux/xkb_symbols.py)
     plover_key_to_keycode: dict[str, KeyCodeInfo] = {}
 
     layout_index = 0
     for xkb_keycode in iter(keymap):
         try:
             if xkb_keycode_to_ev_keycode(xkb_keycode) not in VALID_EV_KEYCODES:
-                # Ignore keys that can't be sent or received by evdev
+                # Ignore keys that can't be sent or received by evdev.
                 continue
-            # Levels are different outputs from the same key with different modifiers pressed
+            # Levels are different outputs from the same key with different modifiers pressed.
             level_count = keymap.num_levels_for_key(xkb_keycode, layout_index)
 
             for level in range(level_count):
@@ -195,11 +193,23 @@ def generate_plover_keymap_from_xkb_keymap(
 
     # The "Linefeed" symbol (xkb symbol 0xff0a) has the key string "\n".
     # If Linefeed appears before the enter/return key when iterating over keys in the keymap (which is the case for qwerty), "\n" will be mapped to Linefeed rather than enter.
-    # Ensures that "\n" is mapped to the enter/return key instead of Linefeed
+    # Ensures that "\n" is mapped to the enter/return key instead of Linefeed.
     if "return" in plover_key_to_keycode:
         plover_key_to_keycode["\n"] = plover_key_to_keycode["return"]
 
     return plover_key_to_keycode
+
+
+def generate_plover_keymap_from_xkb_keymap(
+    keymap: xkb.Keymap,
+) -> dict[str, KeyCodeInfo]:
+    """
+    Wrapper around `generate_plover_keymap_from_xkb_keymap_and_modifiers` that computes the modifiers for you.
+    """
+    modifier_index_to_keycode = get_modifier_keycodes(keymap)
+    return generate_plover_keymap_from_xkb_keymap_and_modifiers(
+        keymap, modifier_index_to_keycode
+    )
 
 
 def add_xkb_keysym_to_plover_keymap(
@@ -220,7 +230,7 @@ def add_xkb_keysym_to_plover_keymap(
 
     if keysym_string is not None and keysym_string not in plover_key_to_keycode:
         # Because we iterate levels in order, the lowest level and thus simplest set of modifiers for each symbol is added first.
-        # If multiple keys produce the same symbol, only add the first key in iteration order. Same for level_key_name and aliases below
+        # If multiple keys produce the same symbol, only add the first key in iteration order. Same for level_key_name and aliases below.
         plover_key_to_keycode[keysym_string] = KeyCodeInfo(
             xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
         )
@@ -233,7 +243,7 @@ def add_xkb_keysym_to_plover_keymap(
 
     if keysym_name.startswith("XF86"):
         plover_key_name = keysym_name[4:].lower()
-        # Add alias with "xf86" for XF86... keys to be consistent with X11 plover
+        # Add alias with "xf86" for keys starting with "XF86" to be consistent with X11 Plover.
         if plover_key_name not in plover_key_to_keycode:
             plover_key_to_keycode[plover_key_name] = KeyCodeInfo(
                 xkb_keycode_to_ev_keycode(xkb_keycode), key_modifiers
@@ -260,21 +270,21 @@ def get_modifiers_for_key_sym(
     )
     key_modifiers: list[int] = []
     # Identify sets of modifiers pressed to obtain the given key and level.
-    # Each `mask` is a bitfield of modifiers pressed
+    # Each `mask` is a bitfield of modifiers pressed.
     for mask in modifier_masks_for_level:
         modifier_index = 0
         while mask > 0:
             if mask & 1:
                 modifier_keycodes = modifier_index_to_keycode[modifier_index]
                 if not modifier_keycodes:
-                    # Invalid modifier index. Try the next mask
+                    # Invalid modifier index. Try the next mask.
                     key_modifiers.clear()
                     break
                 key_modifiers.append(xkb_keycode_to_ev_keycode(modifier_keycodes[0]))
             mask >>= 1
             modifier_index += 1
         else:
-            # Iterated through all modifiers in a mask and found a valid set
+            # Iterated through all modifiers in a mask and found a valid set.
             break
     return key_modifiers
 
@@ -305,7 +315,7 @@ DEFAULT_LAYOUT = "qwerty"
 assert DEFAULT_LAYOUT in LAYOUTS, "Default layout not in defined layouts"
 
 # Linux EV keycode to Plover key name. Determines which keys can be handled and will be suppressed.
-# Many key names are different from xkbcommon, so it's easier to define manually
+# Many key names are different from xkbcommon, so it's easier to define manually.
 HANDLED_KEYCODE_TO_KEY = {
     e.KEY_F1: "F1",
     e.KEY_F2: "F2",
@@ -382,7 +392,7 @@ HANDLED_KEYCODE_TO_KEY = {
     e.KEY_UP: "Up",
 }
 
-# Make sure no keys missing, except the last 5 which are "\t\n\r\x0b\x0c"
+# Make sure no keys missing. The last 5 are "\t\n\r\x0b\x0c" which don't need to be mapped.
 assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
 
 if __name__ == "__main__":

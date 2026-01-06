@@ -34,7 +34,7 @@ GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS = 5
 
 # Additional aliases for xkbcommon keysyms to match names in Plover dictionaries.
 # Keys beginning with "XF86" are handled as a special case during xkbcommon keymap processing.
-# For each xkbcommon keysyms, the lowercase of the symbol name is already added to the keymap by the code.
+# For each xkbcommon keysym, the lowercase of the symbol name is already added to the keymap by the code.
 XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
     "Return": ["\n"],
     "Control_L": ["ctrl", "ctrl_l"],
@@ -58,20 +58,22 @@ XKB_KEY_NAME_TO_ALIASES: dict[str, list[str]] = {
 }
 
 
-def xkb_keycode_to_ev_keycode(keycode: int):
+def xkb_keycode_to_ev_keycode(keycode: int) -> int:
     return keycode - XKB_TO_EV_KEYCODE_OFFSET
 
 
-def ev_keycode_to_xkb_keycode(keycode: int):
+def ev_keycode_to_xkb_keycode(keycode: int) -> int:
     return keycode + XKB_TO_EV_KEYCODE_OFFSET
 
 
 def get_modifier_keycodes(keymap: xkb.Keymap) -> list[list[int]]:
     """
-    Returns a list of xkbcommon keycodes for each non-latched and non-locked modifier that when held,
+    Returns a list of xkbcommon keycodes for each non-latched and non-locked modifier
     in order of the modifier's index.
-    If the modifier is latched or locked (e.g. NumLock), the list of keycodes is empty.
     `result[i]` is the list of keycodes for the modifier with index `i`.
+
+    Don't consider latched or locked modifiers (e.g. NumLock)
+    because Plover doesn't need to handle those for key combos.
     """
     num_mods = keymap.num_mods()
     modifier_index_to_keycodes: list[list[int]] = [[] for _ in range(num_mods)]
@@ -154,7 +156,7 @@ def get_wayland_keymap(timeout: float) -> xkb.Keymap:
 
 
 def generate_plover_keymap_from_xkb_keymap_and_modifiers(
-    keymap: xkb.Keymap, modifier_index_to_keycode: list[list[int]]
+    keymap: xkb.Keymap, modifier_index_to_xkb_keycode: list[list[int]]
 ) -> dict[str, KeyCodeInfo]:
     """
     Generate a mapping of Plover key names (key names used in Plover dictionary entries) to `KeyCodeInfo`.
@@ -184,7 +186,7 @@ def generate_plover_keymap_from_xkb_keymap_and_modifiers(
                         keymap,
                         plover_key_to_keycode,
                         layout_index,
-                        modifier_index_to_keycode,
+                        modifier_index_to_xkb_keycode,
                     )
 
         except xkb.XKBInvalidKeycode:
@@ -262,7 +264,7 @@ def get_modifiers_for_key_sym(
     layout_index: int,
     level: int,
     modifier_index_to_keycode: list[list[int]],
-):
+) -> list[int]:
     """Get one set of modifiers that are pressed to obtain the given key and level.
     If multiple sets of modifiers produce the same key and level, an arbitrary one is returned."""
     modifier_masks_for_level = keymap.key_get_mods_for_level(
@@ -289,34 +291,34 @@ def get_modifiers_for_key_sym(
     return key_modifiers
 
 
-context = xkb.Context()
+_context = xkb.Context()
 
 LAYOUTS = {
     "qwerty": generate_plover_keymap_from_xkb_keymap(
-        context.keymap_new_from_names(layout="us")
+        _context.keymap_new_from_names(layout="us")
     ),
     "qwertz": generate_plover_keymap_from_xkb_keymap(
-        context.keymap_new_from_names(layout="de")
+        _context.keymap_new_from_names(layout="de")
     ),
     "dvorak": generate_plover_keymap_from_xkb_keymap(
-        context.keymap_new_from_names(layout="us", variant="dvorak")
+        _context.keymap_new_from_names(layout="us", variant="dvorak")
     ),
     "colemak": generate_plover_keymap_from_xkb_keymap(
-        context.keymap_new_from_names(layout="us", variant="colemak")
+        _context.keymap_new_from_names(layout="us", variant="colemak")
     ),
     "colemak-dh": generate_plover_keymap_from_xkb_keymap(
-        context.keymap_new_from_names(layout="us", variant="colemak_dh")
+        _context.keymap_new_from_names(layout="us", variant="colemak_dh")
     ),
 }
 
-del context
+del _context
 
 DEFAULT_LAYOUT = "qwerty"
 assert DEFAULT_LAYOUT in LAYOUTS, "Default layout not in defined layouts"
 
 # Linux EV keycode to Plover key name. Determines which keys can be handled and will be suppressed.
 # Many key names are different from xkbcommon, so it's easier to define manually.
-HANDLED_KEYCODE_TO_KEY = {
+HANDLED_EV_KEYCODE_TO_KEY = {
     e.KEY_F1: "F1",
     e.KEY_F2: "F2",
     e.KEY_F3: "F3",
@@ -392,8 +394,8 @@ HANDLED_KEYCODE_TO_KEY = {
     e.KEY_UP: "Up",
 }
 
-# Make sure no keys missing. The last 5 are "\t\n\r\x0b\x0c" which don't need to be mapped.
-assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-5])
+# Make sure no keys missing. The last 3 are "\r\x0b\x0c" which don't need to be mapped.
+assert all(c in LAYOUTS[DEFAULT_LAYOUT].keys() for c in string.printable[:-3])
 
 if __name__ == "__main__":
     xkb_keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)

@@ -17,7 +17,7 @@ from plover.oslayer.linux.display_server import DISPLAY_SERVER
 from plover.oslayer.linux.keyboardlayout_wayland import (
     DEFAULT_LAYOUT,
     GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS,
-    HANDLED_KEYCODE_TO_KEY,
+    HANDLED_EV_KEYCODE_TO_KEY,
     LAYOUTS,
     WAYLAND_AUTO_LAYOUT_NAME,
     KeyCodeInfo,
@@ -35,7 +35,7 @@ from plover import log
 
 # EV keycodes of keys considered modifiers when not able to automatically be
 # determined from the keymap.
-DEFAULT_MODIFIER_KEY_CODES: set[int] = {
+DEFAULT_MODIFIER_EV_KEY_CODES: set[int] = {
     e.KEY_LEFTSHIFT,
     e.KEY_RIGHTSHIFT,
     e.KEY_LEFTCTRL,
@@ -70,29 +70,33 @@ class KeyboardEmulation(GenericKeyboardEmulation):
         if layout == WAYLAND_AUTO_LAYOUT_NAME:
             try:
                 keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
-                modifier_index_to_keycode = get_modifier_keycodes(keymap)
-                modifier_keycodes = set(
-                    keycode
-                    for keycodes in modifier_index_to_keycode
-                    for keycode in keycodes
-                )
-                log.debug("Modifier index to keycode: %s", modifier_index_to_keycode)
+                modifier_index_to_xkb_keycode = get_modifier_keycodes(keymap)
 
                 self._key_to_keycodeinfo = (
                     generate_plover_keymap_from_xkb_keymap_and_modifiers(
-                        keymap, modifier_index_to_keycode
+                        keymap, modifier_index_to_xkb_keycode
                     )
                 )
+                log.debug("Retrieved Wayland keymap: %s", self._key_to_keycodeinfo)
+
                 # Verify that no modifier requires modifiers to be pressed in the generated keymap
+                modifier_xkb_keycodes = set(
+                    keycode
+                    for keycodes in modifier_index_to_xkb_keycode
+                    for keycode in keycodes
+                )
+                log.debug(
+                    "Modifier index to keycode: %s", modifier_index_to_xkb_keycode
+                )
                 for key_info in self._key_to_keycodeinfo.values():
                     if (
-                        ev_keycode_to_xkb_keycode(key_info.keycode) in modifier_keycodes
+                        ev_keycode_to_xkb_keycode(key_info.keycode)
+                        in modifier_xkb_keycodes
                         and len(key_info.modifiers) > 0
                     ):
                         log.warning(
-                            f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. This may cause unexpected behavior."
+                            f"Modifier {key_info.keycode} in retrieved Wayland keymap has modifiers itself. Please report this issue."
                         )
-                log.debug("Retrieved Wayland keymap: %s", self._key_to_keycodeinfo)
             except Exception as e:
                 log.error(
                     f"Failed to get Wayland keymap: {e}. Using default layout {DEFAULT_LAYOUT}."
@@ -152,15 +156,15 @@ class KeyboardEmulation(GenericKeyboardEmulation):
 
         # Key press can not be emulated - send unicode symbol instead.
         elif self._can_send_unicode:
-            # This check is needed in case the keymap layout (somehow) doesn't have ctrl+shift+u mapped, which
-            # would cause a infinite loop trying to send one of those keys using the Unicode input.
+            # This check is needed in case the keymap layout (somehow) doesn't have one of ctrl+shift+u mapped, which
+            # would cause infinite recursion trying to send one of those keys using the Unicode input.
 
             # Convert to hex and remove leading "0x"
             unicode_hex = hex(ord(char))[2:]
             self._send_unicode(unicode_hex)
         else:
             log.warning(
-                f"Cannot send unicode character '{char}' - unicode input not available"
+                "Cannot send unicode character '%s' - unicode input not available", char
             )
 
     def _verify_can_send_unicode_key_combo(self) -> bool:
@@ -201,7 +205,7 @@ class KeyboardCapture(Capture):
     _device_thread_read_pipe: int | None
     _device_thread_write_pipe: int | None
     # EV keycodes of modifier keys
-    _modifier_keycodes: set[int]
+    _modifier_ev_keycodes: set[int]
 
     def __init__(self):
         super().__init__()
@@ -220,14 +224,14 @@ class KeyboardCapture(Capture):
         if DISPLAY_SERVER == "wayland":
             keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
             xkb_modifier_keycodes = get_modifier_keycodes(keymap)
-            self._modifier_keycodes = set(
+            self._modifier_ev_keycodes = set(
                 xkb_keycode_to_ev_keycode(keycode)
                 for keycodes in xkb_modifier_keycodes
                 for keycode in keycodes
             )
         else:
-            self._modifier_keycodes = DEFAULT_MODIFIER_KEY_CODES
-        log.debug("Modifier keycodes: %s", self._modifier_keycodes)
+            self._modifier_ev_keycodes = DEFAULT_MODIFIER_EV_KEY_CODES
+        log.debug("Modifier keycodes: %s", self._modifier_ev_keycodes)
 
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
@@ -334,15 +338,15 @@ class KeyboardCapture(Capture):
             if not self._suppressed_keys:
                 # No keys are suppressed
                 # Always send to Plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHROLG)
-                return HANDLED_KEYCODE_TO_KEY.get(event.code, None), False
-            if event.code in self._modifier_keycodes:
+                return HANDLED_EV_KEYCODE_TO_KEY.get(event.code, None), False
+            if event.code in self._modifier_ev_keycodes:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)
                 elif event.value == KeyEvent.key_up:
                     down_modifier_keys.discard(event.code)
                 return None, False
-            key = HANDLED_KEYCODE_TO_KEY.get(event.code, None)
+            key = HANDLED_EV_KEYCODE_TO_KEY.get(event.code, None)
             if key is None:
                 # Key is unhandled. Passthrough
                 return None, False

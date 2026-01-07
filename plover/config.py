@@ -456,7 +456,7 @@ class Config:
             ),
             choice_option(
                 "keyboard_layout",
-                ("qwerty", "qwertz", "colemak", "colemak-dh", "dvorak"),
+                ("qwerty", "qwertz", "colemak", "colemak-dh", "dvorak", "wayland-auto"),
                 OUTPUT_CONFIG_SECTION,
             ),
             # Logging.

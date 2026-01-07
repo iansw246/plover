@@ -521,6 +521,7 @@ class ConfigWindow(QDialog, Ui_ConfigWindow, WindowStateMixin):
                                 "colemak": "colemak",
                                 "colemak-dh": "colemak-dh",
                                 "dvorak": "dvorak",
+                                "wayland-auto": "wayland-auto",
                             },
                         ),
                         _(

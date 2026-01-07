@@ -24,7 +24,6 @@ from plover.oslayer.linux.keyboardlayout_wayland import (
     generate_plover_keymap_from_xkb_keymap_and_modifiers,
     get_modifier_keycodes,
     ev_keycode_to_xkb_keycode,
-    generate_plover_keymap_from_xkb_keymap,
     get_wayland_keymap,
     xkb_keycode_to_ev_keycode,
 )
@@ -35,7 +34,7 @@ from plover import log
 
 # EV keycodes of keys considered modifiers when not able to automatically be
 # determined from the keymap.
-DEFAULT_MODIFIER_EV_KEY_CODES: set[int] = {
+DEFAULT_MODIFIER_EV_KEYCODES: set[int] = {
     e.KEY_LEFTSHIFT,
     e.KEY_RIGHTSHIFT,
     e.KEY_LEFTCTRL,
@@ -230,7 +229,7 @@ class KeyboardCapture(Capture):
                 for keycode in keycodes
             )
         else:
-            self._modifier_ev_keycodes = DEFAULT_MODIFIER_EV_KEY_CODES
+            self._modifier_ev_keycodes = DEFAULT_MODIFIER_EV_KEYCODES
         log.debug("Modifier keycodes: %s", self._modifier_ev_keycodes)
 
     def _get_devices(self):

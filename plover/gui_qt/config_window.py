@@ -306,9 +306,23 @@ class BooleanAsDualChoiceOption(ChoiceOption):
         super().__init__(choices)
 
 
+class TextWrapQLabel(QLabel):
+    """Simple QLabel wrapper that enables wordWrap"""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.setWordWrap(True)
+
+
 class ConfigOption:
     def __init__(
-        self, display_name, option_name, widget_class, help_text="", dependents=()
+        self,
+        display_name,
+        option_name,
+        widget_class,
+        help_text="",
+        dependents=(),
+        additional_widget_classes=[],
     ):
         self.display_name = display_name
         self.option_name = option_name
@@ -318,6 +332,9 @@ class ConfigOption:
         self.layout = None
         self.widget = None
         self.label = None
+        # Other widgets to be added immediately after the main widget_class
+        # Does not work in dependents
+        self.additional_widget_classes = additional_widget_classes
 
 
 class ConfigWindow(QDialog, Ui_ConfigWindow, WindowStateMixin):
@@ -525,9 +542,22 @@ class ConfigWindow(QDialog, Ui_ConfigWindow, WindowStateMixin):
                             },
                         ),
                         _(
-                            "Set the keyboard layout configurad in your system.\n"
-                            "This only applies when using Linux/BSD and not using X11."
+                            "Set the keyboard layout configured in your system.\n"
+                            "This only applies when using Linux/BSD and not using X11.\n\n"
+                            "When wayland-auto is selected,"
+                            "Plover is only able detect the first keyboard layout\n"
+                            "and can not detect to layout switches."
                         ),
+                        additional_widget_classes=[
+                            partial(
+                                TextWrapQLabel,
+                                _(
+                                    "When wayland-auto is selected, "
+                                    "Plover is only able detect the first keyboard layout "
+                                    "and can not detect to layout switches."
+                                ),
+                            )
+                        ],
                     ),
                 ),
             ),
@@ -593,6 +623,8 @@ class ConfigWindow(QDialog, Ui_ConfigWindow, WindowStateMixin):
                 option.label.setToolTip(option.help_text)
                 option.label.setBuddy(option.widget)
                 layout.addRow(option.label, option.widget)
+                for additional_widget_class in option.additional_widget_classes:
+                    layout.addRow(None, additional_widget_class())
             frame = QFrame()
             frame.setLayout(layout)
             frame.setAccessibleName(section)

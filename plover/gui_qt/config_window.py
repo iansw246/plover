@@ -539,23 +539,23 @@ class ConfigWindow(QDialog, Ui_ConfigWindow, WindowStateMixin):
                                 "colemak": "colemak",
                                 "colemak-dh": "colemak-dh",
                                 "dvorak": "dvorak",
-                                "wayland-auto": "wayland-auto",
+                                "wayland-auto": "Wayland auto detect",
                             },
                         ),
                         _(
                             "Set the keyboard layout configured in your system.\n"
                             "This only applies when using Linux/BSD and not using X11.\n\n"
-                            "When wayland-auto is selected,"
-                            "Plover is only able detect the first keyboard layout\n"
-                            "and can not detect to layout switches."
+                            "When Wayland auto detect is selected,"
+                            "Plover is only able to detect the first keyboard layout\n"
+                            "and can not detect layout switches."
                         ),
                         additional_widget_classes=[
                             partial(
                                 TextWrapQLabel,
                                 _(
-                                    "When wayland-auto is selected, "
-                                    "Plover is only able detect the first keyboard layout "
-                                    "and can not detect to layout switches."
+                                    "When Wayland auto detect is selected, "
+                                    "Plover is only able to detect the first keyboard layout "
+                                    "and can not detect layout switches."
                                 ),
                             )
                         ],

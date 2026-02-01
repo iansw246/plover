@@ -13,7 +13,6 @@ from evdev import (
 )
 from psutil import process_iter
 
-from plover.oslayer.linux.display_server import DISPLAY_SERVER
 from plover.oslayer.linux.keyboardlayout_wayland import (
     DEFAULT_LAYOUT,
     GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS,
@@ -25,7 +24,6 @@ from plover.oslayer.linux.keyboardlayout_wayland import (
     get_modifier_keycodes,
     ev_keycode_to_xkb_keycode,
     get_wayland_keymap,
-    xkb_keycode_to_ev_keycode,
 )
 from plover.output.keyboard import GenericKeyboardEmulation
 from plover.machine.keyboard_capture import Capture
@@ -33,7 +31,7 @@ from plover.key_combo import parse_key_combo
 from plover import log
 
 # EV keycodes of keys considered modifiers when not able to automatically be
-# determined from the keymap.
+# determined from the keymap (this feature isn't implemented yet).
 DEFAULT_MODIFIER_EV_KEYCODES: set[int] = {
     e.KEY_LEFTSHIFT,
     e.KEY_RIGHTSHIFT,
@@ -219,19 +217,6 @@ class KeyboardCapture(Capture):
         self._ui = UInput(res)
         self._suppressed_keys = set()
 
-        # TODO: Decide whether to add configuration for whether to use Wayland modifier detection
-        if DISPLAY_SERVER == "wayland":
-            keymap = get_wayland_keymap(GET_WAYLAND_KEYMAP_TIMEOUT_SECONDS)
-            xkb_modifier_keycodes = get_modifier_keycodes(keymap)
-            self._modifier_ev_keycodes = set(
-                xkb_keycode_to_ev_keycode(keycode)
-                for keycodes in xkb_modifier_keycodes
-                for keycode in keycodes
-            )
-        else:
-            self._modifier_ev_keycodes = DEFAULT_MODIFIER_EV_KEYCODES
-        log.debug("Modifier keycodes: %s", self._modifier_ev_keycodes)
-
     def _get_devices(self):
         input_devices = [InputDevice(path) for path in list_devices()]
         keyboard_devices = [dev for dev in input_devices if self._filter_devices(dev)]
@@ -338,7 +323,7 @@ class KeyboardCapture(Capture):
                 # No keys are suppressed
                 # Always send to Plover so that it can handle global shortcuts like PLOVER_TOGGLE (PHROLG)
                 return HANDLED_EV_KEYCODE_TO_KEY.get(event.code, None), False
-            if event.code in self._modifier_ev_keycodes:
+            if event.code in DEFAULT_MODIFIER_EV_KEYCODES:
                 # Can't use if-else because there is a third case: key_hold
                 if event.value == KeyEvent.key_down:
                     down_modifier_keys.add(event.code)

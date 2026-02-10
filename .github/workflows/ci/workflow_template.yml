@@ -459,7 +459,7 @@ jobs:
           cp dist/Wheel/*.whl dist/pypi/
 
       - name: Publish release to PyPI (Trusted Publishing)
-        if: needs.analyze.outputs.release_type == 'tagged'
+        if: needs.analyze.outputs.release_type == 'tagged' && github.event.repository.fork == false
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/pypi

@@ -1,3 +1,20 @@
+# v5.2.1 (2026-02-06)
+
+
+## Features
+
+### Core
+
+- Update PySide dependency to allow Arch Linux AUR to be packaged. (#1775)
+
+## Bugfixes
+
+No significant changes.
+
+## API
+
+No significant changes.
+
 # v5.2.0 (2026-02-01)
 
 

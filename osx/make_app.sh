@@ -62,8 +62,36 @@ run_eval "export SSL_CERT_FILE='$SSL_CERT_FILE'"
 run_eval "unset __PYVENV_LAUNCHER__"
 python='appdir_python'
 
+# Ensure pip prefers universal2 wheels and source builds target both architectures.
+export _PYTHON_HOST_PLATFORM="macosx-${py_installer_macos}.0-universal2"
+export ARCHFLAGS="-arch x86_64 -arch arm64"
+
+# Remove single-architecture macOS wheels from the cache. The tox dev environment
+# shares .cache/wheels/ and populates it with host-arch-only wheels during its own
+# dependency installation, before make_app.sh runs. Removing them forces pip to
+# re-download universal2 wheels or rebuild from source with ARCHFLAGS.
+for whl in .cache/wheels/*.whl; do
+    [ -f "$whl" ] || continue
+    case "$(basename "$whl")" in
+        *universal2*) ;;
+        *macosx*) echo "Removing single-arch cached wheel: $whl"; rm -f "$whl" ;;
+    esac
+done
+
+# Determine which packages lack universal2 wheels and must be built from source.
+echo "Checking PyPI for universal2 wheel availability..."
+no_binary_list=$(python3 osx/find_non_universal_wheels.py "${py_version%.*}" reqs/constraints.txt)
+extra_args=(--no-cache-dir)
+if [ -n "$no_binary_list" ]; then
+    echo "Packages requiring source builds for universal2: $no_binary_list"
+    extra_args+=(--no-binary "$no_binary_list")
+fi
+
 # Install Plover and dependencies.
-bootstrap_dist "$plover_wheel"
+bootstrap_dist "$plover_wheel" "${extra_args[@]}"
+
+# Verify all installed binaries are universal.
+run bash osx/check_universal.sh "$frameworks_dir/Python.framework" "${py_version%.*}"
 
 # Create launcher.
 run gcc -Wall -O2 -arch x86_64 -arch arm64 'osx/app_resources/plover_launcher.c' -o "$macos_dir/Plover"

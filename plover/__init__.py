@@ -15,7 +15,7 @@ else:
         return s
 
 
-__version__ = "5.2.0"
+__version__ = "5.2.1"
 __copyright__ = "(C) Open Steno Project"
 __url__ = "http://www.openstenoproject.org/"
 __download_url__ = "http://www.openstenoproject.org/plover"
